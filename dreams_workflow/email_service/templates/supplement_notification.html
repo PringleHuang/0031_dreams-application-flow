@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: 'Microsoft JhengHei', sans-serif; line-height: 1.8; color: #333;">
+<p>您好，</p>
+
+<p>您的 DREAMS 申請案件（案件編號：{{ case_id }}）經審核後，以下項目需要補正：</p>
+
+<ul>
+{% for item in failed_items %}
+  <li>{{ item }}</li>
+{% endfor %}
+</ul>
+
+<p>請點擊下方連結，針對上述不合格項目進行補正：</p>
+
+<p><a href="{{ questionnaire_url }}" style="color: #0066cc; font-weight: bold;">補件問卷連結</a></p>
+
+<p>為確保您的申請能順利進行，請盡速完成補件。如有任何疑問，歡迎隨時聯絡我們。</p>
+
+<p>感謝您的配合！</p>
+
+<p>祝 商祺</p>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: 'Microsoft JhengHei', sans-serif; line-height: 1.8; color: #333;">
+<p>您好，</p>
+
+<p>您的 DREAMS 申請案件（案件編號：{{ case_id }}）已完成上線程序，SunVeillance 站點監控帳號已啟用。</p>
+
+<p><strong>【帳號資訊】</strong></p>
+<table style="border-collapse: collapse; margin: 16px 0;">
+  <tr>
+    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5;"><strong>登入網址</strong></td>
+    <td style="padding: 8px; border: 1px solid #ddd;"><a href="{{ login_url }}">{{ login_url }}</a></td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5;"><strong>帳號</strong></td>
+    <td style="padding: 8px; border: 1px solid #ddd;">{{ account }}</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; border: 1px solid #ddd; background: #f5f5f5;"><strong>初始密碼</strong></td>
+    <td style="padding: 8px; border: 1px solid #ddd;">{{ initial_password }}</td>
+  </tr>
+</table>
+
+<p>請於首次登入後修改密碼。如有任何使用上的問題，歡迎隨時聯絡我們。</p>
+
+<p>感謝您選擇我們的服務！</p>
+
+<p>祝 商祺</p>
+</body>
+</html>

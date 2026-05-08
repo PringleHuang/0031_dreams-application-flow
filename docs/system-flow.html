@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DREAMS 申請流程自動化 - 系統流程圖 v5</title>
+    <script src="mermaid.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+        .header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; padding: 24px 40px; }
+        .header h1 { font-size: 24px; }
+        .header p { font-size: 14px; opacity: 0.85; margin-top: 4px; }
+        .tabs { display: flex; background: white; border-bottom: 2px solid #e0e0e0; padding: 0 40px; flex-wrap: wrap; }
+        .tab { padding: 14px 20px; cursor: pointer; font-size: 14px; font-weight: 500; color: #666; border-bottom: 3px solid transparent; transition: all 0.2s; white-space: nowrap; }
+        .tab:hover { color: #1a73e8; background: #f8f9ff; }
+        .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; font-weight: 600; }
+        .content { padding: 30px 40px; max-width: 1400px; margin: 0 auto; }
+        .diagram-card { background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .diagram-card.active { display: block; }
+        .diagram-card.hidden { display: none; }
+        .diagram-card h2 { font-size: 20px; color: #1a73e8; margin-bottom: 8px; }
+        .diagram-card .desc { font-size: 14px; color: #666; margin-bottom: 24px; line-height: 1.6; }
+        .mermaid { display: flex; justify-content: center; overflow-x: auto; padding: 10px 0; }
+        .legend { margin-top: 24px; padding: 16px 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #1a73e8; }
+        .legend h3 { font-size: 14px; color: #555; margin-bottom: 8px; }
+        .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin-left: 8px; font-weight: 600; }
+        .badge-done { background: #2e7d32; color: white; }
+        .badge-partial { background: #f57c00; color: white; }
+        .badge-todo { background: #9e9e9e; color: white; }
+        .progress-legend { margin-top: 16px; padding: 12px 20px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #2e7d32; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>DREAMS 申請流程自動化 - 系統流程圖 v5</h1>
+    <p>Agent 直寫雲端 RAGIC, Webhook 統一入口, DREAMS 填單 API 整合</p>
+</div>
+<div class="tabs">
+    <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 完成</span></div>
+    <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-done">✓ 完成</span></div>
+    <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-partial">進行中</span></div>
+    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-todo">待開發</span></div>
+    <div class="tab" onclick="showTab(4)">四、新約-安裝結案 <span class="badge badge-todo">待開發</span></div>
+    <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-todo">待開發</span></div>
+    <div class="tab" onclick="showTab(6)">六、狀態轉換總覽</div>
+    <div class="tab" onclick="showTab(7)">七、元件互動時序</div>
+</div>
+<div class="content">
+
+<!-- Tab 0 -->
+<div class="diagram-card active" id="tab-0">
+<h2>階段零 - 每日出貨掃描</h2>
+<div class="desc">內網 Agent 每天定時掃描出貨管理表單, 找到符合條件訂單後寫入雲端 RAGIC（狀態=新開案件）, 由 Webhook 觸發後續流程。</div>
+<div class="mermaid">
+flowchart TD
+    A["內網 Agent 每日定時觸發"]:::done --> B["掃描內網 RAGIC 出貨管理表單"]:::done
+    B --> C{"篩選: 已出貨 + 料號 19.D1M01.007 + 未拋送"}:::done
+    C -->|無符合| D["記錄掃描結果 - 無新訂單"]:::done
+    C -->|有符合| E["逐筆呼叫雲端 RAGIC API 建立新案件\n狀態設為「新開案件」"]:::done
+    E --> F["雲端 RAGIC 觸發 Webhook"]:::done
+    F --> G["API Gateway 接收"]:::done
+    G --> H["webhook_handler 分類 NEW_CASE_CREATED\n（判斷依據：狀態欄位=新開案件）"]:::done
+    H --> I["workflow_engine 發送問卷通知信\n（含 pfv 預填出貨編號+DREAMS_APPLY_ID）"]:::done
+    I --> J["案件狀態 → 待填問卷"]:::done
+    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+</div>
+</div>
+
+<!-- Tab 1 -->
+<div class="diagram-card" id="tab-1">
+<h2>階段一 - 問卷續約/新約分流</h2>
+<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。</div>
+<div class="mermaid">
+flowchart TD
+    A["案件狀態 - 待填問卷"]:::done --> B["客戶開啟 RAGIC 問卷\n（DREAMS案場申請單 work-survey/7）"]:::done
+    B --> C{"問卷第一題 - 是否續約"}:::done
+    C -->|續約| D["客戶僅填寫電號"]:::done
+    D --> E["RAGIC Webhook 觸發"]:::done
+    E --> F["webhook 分類 - 續約問卷回覆"]:::done
+    F --> G["案件狀態 → 續約處理"]:::done
+    G --> H(["進入續約簡化流程 Tab五"])
+    C -->|新約| I["客戶填寫完整資料 + 上傳5份佐證文件"]:::done
+    I --> J["RAGIC Webhook 觸發"]:::done
+    J --> K["webhook 分類 - 新約完整問卷回覆"]:::done
+    K --> L(["進入 AI 判定流程 Tab二"])
+    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+</div>
+</div>
+
+<!-- Tab 2 -->
+<div class="diagram-card" id="tab-2">
+<h2>新約流程 - 資訊收集階段</h2>
+<div class="desc">新約案件 - 從 DREAMS_APPLY_ID 解析目標記錄 ID, AI 逐份比對佐證文件, 一次性將所有結果寫入 RAGIC, 公司聯絡人在 RAGIC 上確認並手動改狀態。</div>
+<div class="mermaid">
+flowchart TD
+    A["新約案件 - Webhook 觸發"]:::done --> A2["從 DREAMS_APPLY_ID 解析 RAGIC record ID\n（split '-' 取第二段）"]:::done
+    A2 --> B["下載5份佐證文件附件"]:::done
+    B --> C["逐份文件 AI 判定\n（Bedrock 審訖圖/細部協商/縣府函文/購售電契約/併聯審查意見書）"]:::done
+    C --> D["組合完整寫入資料:\n直接欄位 + LLM判定值 + Pass/Fail + 狀態"]:::done
+    D --> E["單次 RAGIC POST 寫入案件管理表單\n狀態 → 待人工確認"]:::done
+    E --> F["公司聯絡人在 RAGIC 檢視判定結果"]:::done
+    F --> G{"人工在 RAGIC 手動改狀態"}:::done
+    G -->|改為 台電審核| H["RAGIC Webhook 觸發"]:::done
+    H --> I(["進入台電審核 Tab三"])
+    G -->|改為 資訊補件| J["RAGIC Webhook 觸發"]:::done
+    J --> K["讀取問卷結果 Fail/Yes 欄位\n匯總補件參數代碼 A~Q"]:::todo
+    K --> L["SES 發送補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]:::todo
+    L --> M["客戶填寫補件問卷\n（DREAMS案場-補單）"]:::todo
+    M -->|RAGIC Webhook| A
+    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
+</div>
+</div>
+
+<!-- Tab 3 -->
+<div class="diagram-card" id="tab-3">
+<h2>新約流程 - 台電審核階段</h2>
+<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。</div>
+<div class="mermaid">
+flowchart TD
+    A["RAGIC Webhook - 狀態變更為台電審核"] --> B["呼叫 DREAMS 填單 API"]
+    B --> C{"API 回應"}
+    C -->|無電號| D["發送電號建立請求通知給台電審核聯絡人"]
+    D --> E["等待電號建立完成"]
+    C -->|成功: 案號+PDF| F["案號寫入 RAGIC"]
+    F --> G["SES 發送審核申請信給台電\n含佐證文件 + 申請資料 PDF"]
+    G --> H["台電回覆審核結果郵件"]
+    H --> I["SES 接收 + Lambda 解析"]
+    I --> J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]
+    J --> K["語意分析結果寫入 RAGIC\n狀態 → 發送前人工確認"]
+    K --> L["公司聯絡人在 RAGIC 檢視台電審核結果"]
+    L --> M{"人工在 RAGIC 手動改狀態"}
+    M -->|改為 安裝階段| N(["進入安裝階段 Tab四"])
+    M -->|改為 台電補件| O["讀取台電審核結果 Fail/Yes 欄位\n匯總補件參數代碼 A~Q"]
+    O --> P["SES 發送台電補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]
+    P --> Q["客戶填寫台電補件問卷"]
+    Q -->|RAGIC Webhook| A
+</div>
+</div>
+
+<!-- Tab 4 -->
+<div class="diagram-card" id="tab-4">
+<h2>新約流程 - 安裝和結案</h2>
+<div class="desc">人工確認核准後通知客戶安裝資料收集器, 客服協助 DREAMS 自主檢查與上線, 最後同步至 SunVeillance 並結案。</div>
+<div class="mermaid">
+flowchart TD
+    A["案件狀態 - 安裝階段"] --> B["SES 發送核准通知 + 自主檢查清單"]
+    B --> C["客戶安裝資料收集器"]
+    C --> D["客戶聯繫客服"]
+    D --> E["客服執行 DREAMS 自主檢查"]
+    E --> F{"自主檢查結果"}
+    F -->|未通過| G["通知客戶問題項目"]
+    G --> H["客戶解決問題"]
+    H --> E
+    F -->|通過| I["執行 DREAMS 上線程序"]
+    I --> J["案件狀態 → 完成上線"]
+    J --> K["站點資料寫入 SunVeillance"]
+    K --> L["SES 發送帳號啟用通知"]
+    L --> M["寫入 DREAMS 到期資訊"]
+    M --> N["案件狀態 → 已結案"]
+</div>
+</div>
+
+<!-- Tab 5 -->
+<div class="diagram-card" id="tab-5">
+<h2>續約簡化流程</h2>
+<div class="desc">續約案件不需 AI 判定和台電審核。客戶填電號後登入 SunVeillance 選擇續約案場, 完成後回寫雲端 RAGIC 即結案。</div>
+<div class="mermaid">
+flowchart TD
+    A["案件狀態 - 續約處理"] --> B["提供 SunVeillance 登入資訊給客戶"]
+    B --> C["客戶登入 SunVeillance"]
+    C --> D["客戶選擇續約案場"]
+    D --> E{"選擇完成"}
+    E -->|否| D
+    E -->|是| F["回寫雲端 RAGIC 案件管理表單"]
+    F --> G["案件狀態 → 已結案"]
+</div>
+<div class="legend">
+<h3>續約 vs 新約比較</h3>
+<table style="width:100%; border-collapse:collapse; margin-top:8px; font-size:13px;">
+<tr style="background:#f5f5f5;"><th style="padding:8px; border:1px solid #ddd;">項目</th><th style="padding:8px; border:1px solid #ddd;">續約</th><th style="padding:8px; border:1px solid #ddd;">新約</th></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">問卷</td><td style="padding:8px; border:1px solid #ddd;">僅填電號</td><td style="padding:8px; border:1px solid #ddd;">完整資料+5份佐證文件</td></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">AI判定</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">台電審核</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">安裝</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">結案方式</td><td style="padding:8px; border:1px solid #ddd;">SunVeillance選案場+回寫RAGIC</td><td style="padding:8px; border:1px solid #ddd;">DREAMS上線+SunVeillance同步</td></tr>
+</table>
+</div>
+</div>
+
+<!-- Tab 6 -->
+<div class="diagram-card" id="tab-6">
+<h2>案件狀態轉換總覽</h2>
+<div class="desc">案件共 11 個狀態, 2 種類型。續約走簡化路徑, 新約走完整路徑。台電回覆後需經「發送前人工確認」再決定下一步。</div>
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> NewCase : 出貨掃描建立案件
+    NewCase --> PendingQ : 發送問卷通知
+    PendingQ --> Renewal : 續約填寫電號
+    PendingQ --> ManualConfirm : 新約AI判定完成
+    Renewal --> Closed : 續約完成回寫
+    ManualConfirm --> TaipowerReview : 人工確認合格
+    ManualConfirm --> InfoSupp : 人工確認不合格
+    InfoSupp --> ManualConfirm : 補件後AI判定完成
+    TaipowerReview --> PreSendConfirm : 台電回覆後
+    PreSendConfirm --> Installation : 人工確認核准
+    PreSendConfirm --> TaipowerSupp : 人工確認需補件
+    TaipowerSupp --> TaipowerReview : 補件完成重新申請
+    Installation --> Online : 自主檢查通過
+    Online --> Closed : 資料同步完成
+
+    state "新開案件" as NewCase
+    state "待填問卷" as PendingQ
+    state "續約處理" as Renewal
+    state "待人工確認" as ManualConfirm
+    state "資訊補件" as InfoSupp
+    state "台電審核" as TaipowerReview
+    state "發送前人工確認" as PreSendConfirm
+    state "台電補件" as TaipowerSupp
+    state "安裝階段" as Installation
+    state "完成上線" as Online
+    state "已結案" as Closed
+</div>
+<div class="legend">
+<h3>狀態說明</h3>
+<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:6px; margin-top:8px; font-size:13px;">
+<div><b>新開案件</b> - 出貨掃描服務建立, 等待發送問卷</div>
+<div><b>待填問卷</b> - 問卷通知已發送, 等待客戶填寫</div>
+<div><b style="color:#2e7d32;">續約處理</b> - 等待客戶選擇續約案場</div>
+<div><b>待人工確認</b> - AI判定完成, 等待人工在RAGIC改狀態</div>
+<div><b>資訊補件</b> - 等待客戶補件</div>
+<div><b>台電審核</b> - 已送出審核申請, 等待台電回覆</div>
+<div><b>發送前人工確認</b> - 台電回覆已分析, 等待人工確認</div>
+<div><b>台電補件</b> - 台電駁回, 等待客戶補件</div>
+<div><b>安裝階段</b> - 等待客戶安裝設備</div>
+<div><b>完成上線</b> - DREAMS已上線, 同步中</div>
+<div><b>已結案</b> - 案件關閉</div>
+</div>
+</div>
+</div>
+
+<!-- Tab 7 -->
+<div class="diagram-card" id="tab-7">
+<h2>系統元件互動時序圖</h2>
+<div class="desc">各系統元件之間的完整互動順序。</div>
+<div class="mermaid">
+sequenceDiagram
+    participant AGT as Shipment Scanner
+    participant RI as Intranet RAGIC
+    participant C as Customer
+    participant R as Cloud RAGIC
+    participant AG as API Gateway
+    participant WH as webhook_handler
+    participant AI as ai_determination
+    participant WF as workflow_engine
+    participant ES as email_service
+    participant MR as mail_receiver
+    participant DAPI as DREAMS API
+    participant SV as SunVeillance
+    participant SES as AWS SES
+    participant BK as Bedrock
+    participant TP as Taipower
+    participant CC as Company Contact
+
+    rect rgb(255, 248, 225)
+    Note over AGT,CC: Phase 0 - Daily Shipment Scan
+    AGT->>RI: Scan shipment form
+    RI-->>AGT: Matched orders
+    AGT->>R: Create case (status=新開案件)
+    R->>AG: Webhook NEW_CASE_CREATED
+    AG->>WH: Forward
+    WH->>WF: New case event
+    WF->>ES: Send questionnaire notification (pfv)
+    ES->>SES: Send email
+    SES->>C: Questionnaire link (work-survey/7)
+    WF->>R: Update status → 待填問卷
+    end
+
+    rect rgb(232, 245, 233)
+    Note over AGT,CC: Questionnaire Routing
+    C->>R: Fill questionnaire
+    alt Renewal
+        R->>AG: Webhook Renewal
+        AG->>WH: Forward
+        WH->>WF: Type = Renewal
+        WF->>R: Status → 續約處理
+        WF->>ES: Send SunVeillance login
+        SES->>C: Login info
+        C->>SV: Select renewal site
+        WF->>R: Write back + Status → 已結案
+    else New Contract
+        R->>AG: Webhook New Contract
+        AG->>WH: Forward
+        WH->>AI: Trigger AI determination
+    end
+    end
+
+    rect rgb(227, 242, 253)
+    Note over AGT,CC: New Contract - AI Determination
+    AI->>R: Download attachments (5 docs)
+    AI->>BK: Document comparison x5 (per doc)
+    BK-->>AI: Extracted values + comparison
+    AI->>R: Single POST: direct fields + LLM values + Pass/Fail + status=待人工確認
+    CC->>R: Review results in RAGIC
+    alt Change to 台電審核
+        CC->>R: Change status
+        R->>AG: Webhook CASE_STATUS_CHANGED
+        AG->>WF: Status = 台電審核
+    else Change to 資訊補件
+        CC->>R: Change status
+        R->>AG: Webhook CASE_STATUS_CHANGED
+        AG->>WF: Status = 資訊補件
+        WF->>WF: Read Fail/Yes fields → build params A|B|F
+        WF->>ES: Send supplement notice (pfv params)
+        SES->>C: Supplement link (work-survey/9)
+    end
+    end
+
+    rect rgb(255, 243, 224)
+    Note over AGT,CC: New Contract - Taipower Review
+    WF->>DAPI: Call DREAMS Form API
+    alt No electricity number
+        DAPI-->>WF: Error: NO_ELECTRICITY_NUMBER
+        WF->>ES: Notify Taipower contact
+    else Success
+        DAPI-->>WF: case_number + PDF base64
+        WF->>R: Write case_number to RAGIC
+        WF->>ES: Send review request (attachments + PDF)
+        SES->>TP: Review request email
+    end
+    TP->>SES: Reply with result
+    SES->>MR: Trigger mail receiver
+    MR->>AI: Semantic analysis
+    AI->>BK: Analyze reply
+    BK-->>AI: Per-field Pass/Fail
+    AI->>R: Write results + status → 發送前人工確認
+    CC->>R: Review in RAGIC
+    alt Approve → 安裝階段
+        CC->>R: Change status
+        R->>AG: Webhook
+        AG->>WF: Status = 安裝階段
+    else Reject → 台電補件
+        CC->>R: Change status
+        R->>AG: Webhook
+        AG->>WF: Status = 台電補件
+        WF->>WF: Read Fail/Yes fields → build params
+        WF->>ES: Send Taipower supplement (pfv params)
+        SES->>C: Supplement link (work-survey/9)
+    end
+    end
+
+    rect rgb(232, 245, 233)
+    Note over AGT,CC: New Contract - Installation + Closure
+    WF->>ES: Send approval + checklist
+    SES->>C: Approval notice
+    C->>CC: Contact support
+    CC->>DAPI: Execute self-check
+    DAPI-->>WF: Check passed
+    WF->>DAPI: Go online
+    WF->>SV: Sync site data
+    WF->>ES: Send activation notice
+    SES->>C: Account activation
+    WF->>R: Status → 已結案
+    end
+</div>
+</div>
+
+</div>
+<div class="progress-legend" style="margin: 30px 40px 20px;">
+    <b>開發進度圖例：</b>
+    <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成（程式碼+測試通過）
+    <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 待開發（規格已定義）
+    <span style="display:inline-block; width:16px; height:16px; background:#fff; border:2px solid #9e9e9e; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 未標色（不涉及程式開發）
+    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-07
+</div>
+<script>
+mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+mermaid.run().then(function() {
+    document.querySelectorAll('.diagram-card').forEach(function(card, idx) {
+        if (idx !== 0) card.classList.add('hidden');
+    });
+});
+
+function showTab(i) {
+    document.querySelectorAll('.tab').forEach(function(t, idx) { t.classList.toggle('active', idx===i); });
+    document.querySelectorAll('.diagram-card').forEach(function(c, idx) {
+        if (idx === i) { c.classList.remove('hidden'); }
+        else { c.classList.add('hidden'); }
+    });
+}
+</script>
+</body>
+</html>

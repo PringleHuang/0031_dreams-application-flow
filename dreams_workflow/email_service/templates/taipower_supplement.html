@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: 'Microsoft JhengHei', sans-serif; line-height: 1.8; color: #333;">
+<p>您好，</p>
+
+<p>您的 DREAMS 申請案件（案件編號：{{ case_id }}）經台電審核後需要補件，駁回原因如下：</p>
+
+<blockquote style="border-left: 4px solid #e0e0e0; padding-left: 16px; margin: 16px 0; color: #555;">
+{{ rejection_reason }}
+</blockquote>
+
+<p>請點擊下方連結，針對上述項目進行補正：</p>
+
+<p><a href="{{ questionnaire_url }}" style="color: #0066cc; font-weight: bold;">台電補件問卷連結</a></p>
+
+<p>補件完成後，系統將自動重新提交台電審核申請。如有任何疑問，歡迎隨時聯絡我們。</p>
+
+<p>感謝您的配合！</p>
+
+<p>祝 商祺</p>
+</body>
+</html>

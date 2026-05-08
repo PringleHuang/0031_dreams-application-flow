@@ -1,0 +1,80 @@
+# Email Service Configuration
+# 郵件範本配置：定義每種郵件類型的主旨、範本檔案、連結參數
+#
+# link.dynamic_params 映射格式：
+#   URL參數名: template_data中的key名
+#   例如 "default_1000123: case_id" 表示從 template_data["case_id"] 取值
+#   填入 URL 的 ?default_1000123=<value>
+
+sender:
+  name: "DREAMS 太陽能管理系統"
+  email: "${SES_SENDER_EMAIL}"  # 從環境變數讀取
+
+templates:
+  questionnaire_notification:
+    subject: "DREAMS 申請 - 問卷填寫通知"
+    template_file: "questionnaire_notification.html"
+    link:
+      base_url: "https://ap13.ragic.com/solarcs/work-survey/7"
+      static_params:
+        ragic-web-embed: "true"
+        webaction: "form"
+        ver: "new"
+        version: "2"
+      dynamic_params:
+        # pfv 預填值：將出貨編號與 DREAMS_APPLY_ID 帶入問卷
+        # 參照 https://www.ragic.com/intl/zh-TW/doc-kb/195
+        pfv1015022: "shipment_order_id"
+        pfv1016284: "dreams_apply_id"
+
+  supplement_notification:
+    subject: "DREAMS 申請 - 資料補件通知"
+    template_file: "supplement_notification.html"
+    link:
+      base_url: "https://ap13.ragic.com/solarcs/work-survey/9"
+      static_params:
+        ragic-web-embed: "true"
+        webaction: "form"
+        ver: "new"
+        version: "2"
+      dynamic_params:
+        # pfv 預填值：補件參數（多選欄位，以 | 分隔）+ 出貨編號 + DREAMS_APPLY_ID
+        pfv1016697: "supplement_params"
+        pfv1016666: "shipment_order_id"
+        pfv1016649: "dreams_apply_id"
+      multi_select_separator: "|"
+
+  taipower_application:
+    subject: "DREAMS 台電站點申請 - {case_id}"
+    template_file: "taipower_application.html"
+    link: null
+
+  taipower_supplement:
+    subject: "DREAMS 申請 - 台電補件通知"
+    template_file: "taipower_supplement.html"
+    link:
+      base_url: "https://ap13.ragic.com/solarcs/work-survey/9"
+      static_params:
+        ragic-web-embed: "true"
+        webaction: "form"
+        ver: "new"
+        version: "2"
+      dynamic_params:
+        # pfv 預填值：補件參數（多選欄位，以 | 分隔）+ 出貨編號 + DREAMS_APPLY_ID
+        pfv1016697: "supplement_params"
+        pfv1016666: "shipment_order_id"
+        pfv1016649: "dreams_apply_id"
+      multi_select_separator: "|"
+
+  approval_notification:
+    subject: "DREAMS 申請核准通知 - {case_id}"
+    template_file: "approval_notification.html"
+    link: null
+
+  account_activation:
+    subject: "SunVeillance 帳號啟用通知"
+    template_file: "account_activation.html"
+    link:
+      base_url: "https://sunveillance.example.com/login"
+      static_params: {}
+      dynamic_params: {}

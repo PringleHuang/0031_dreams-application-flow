@@ -1,0 +1,50 @@
+# SAM CLI Configuration for DREAMS Workflow System
+# More information about the configuration file can be found here:
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "dreams-workflow-prod"
+region = "ap-northeast-1"
+resolve_s3 = true
+s3_prefix = "dreams-workflow"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = true
+parameter_overrides = "Environment=prod"
+tags = "Project=dreams-workflow Environment=prod Team=solar-energy"
+
+[default.build.parameters]
+use_container = false
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+# Development environment
+[dev.deploy.parameters]
+stack_name = "dreams-workflow-dev"
+region = "ap-northeast-1"
+resolve_s3 = true
+s3_prefix = "dreams-workflow-dev"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = false
+parameter_overrides = "Environment=dev"
+tags = "Project=dreams-workflow Environment=dev Team=solar-energy"
+
+# Staging environment
+[staging.deploy.parameters]
+stack_name = "dreams-workflow-staging"
+region = "ap-northeast-1"
+resolve_s3 = true
+s3_prefix = "dreams-workflow-staging"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = true
+parameter_overrides = "Environment=staging"
+tags = "Project=dreams-workflow Environment=staging Team=solar-energy"

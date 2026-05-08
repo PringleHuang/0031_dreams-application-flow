@@ -1,0 +1,361 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  DREAMS Application Flow - Automated workflow system for solar energy application processing.
+  Event-driven architecture using Lambda, API Gateway, SES, Bedrock, and RAGIC integration.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        RAGIC_BASE_URL: https://ap13.ragic.com
+        BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+        LOG_LEVEL: INFO
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+  RagicApiKey:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /dreams-workflow/ragic-api-key
+    Description: RAGIC API Key from Parameter Store
+
+  WebhookSecret:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /dreams-workflow/webhook-secret
+    Description: Webhook HMAC secret from Parameter Store
+
+  DreamsApiUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /dreams-workflow/dreams-api-url
+    Description: DREAMS API URL from Parameter Store
+
+  SesSenderEmail:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /dreams-workflow/ses-sender-email
+    Description: SES sender email address from Parameter Store
+
+  SunveillanceApiUrl:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /dreams-workflow/sunveillance-api-url
+    Description: SunVeillance API URL from Parameter Store
+
+  SesReceiptRuleSetName:
+    Type: String
+    Default: dreams-workflow-receipt-rules
+    Description: SES Receipt Rule Set name
+
+  SesRecipientDomain:
+    Type: String
+    Default: dreams.example.com
+    Description: Domain for receiving emails via SES
+
+Resources:
+  # ============================================================
+  # S3 Bucket - Email storage and logs
+  # ============================================================
+  EmailStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub dreams-workflow-${Environment}-email-storage
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireEmailLogs
+            Status: Enabled
+            ExpirationInDays: 90
+            Prefix: email-logs/
+          - Id: ExpireRawEmails
+            Status: Enabled
+            ExpirationInDays: 30
+            Prefix: incoming-emails/
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  EmailStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EmailStorageBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${EmailStorageBucket.Arn}/incoming-emails/*
+            Condition:
+              StringEquals:
+                AWS:SourceAccount: !Ref AWS::AccountId
+
+  # ============================================================
+  # API Gateway
+  # ============================================================
+  WebhookApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub dreams-workflow-${Environment}-api
+      StageName: !Ref Environment
+      EndpointConfiguration:
+        Type: REGIONAL
+      TracingEnabled: true
+
+  # ============================================================
+  # Lambda Functions
+  # ============================================================
+
+  # --- webhook_handler ---
+  WebhookHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub dreams-workflow-${Environment}-webhook-handler
+      Description: Receives and validates RAGIC Webhook requests, routes to appropriate handlers
+      CodeUri: dreams_workflow/
+      Handler: webhook_handler/app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          RAGIC_API_KEY: !Ref RagicApiKey
+          WEBHOOK_SECRET: !Ref WebhookSecret
+          AI_DETERMINATION_FUNCTION_NAME: !Ref AiDeterminationFunction
+          WORKFLOW_ENGINE_FUNCTION_NAME: !Ref WorkflowEngineFunction
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AiDeterminationFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref WorkflowEngineFunction
+        - CloudWatchLogsFullAccess
+      Events:
+        WebhookPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref WebhookApi
+            Path: /webhook
+            Method: POST
+
+  WebhookHandlerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/dreams-workflow-${Environment}-webhook-handler
+      RetentionInDays: 14
+
+  # --- ai_determination ---
+  AiDeterminationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub dreams-workflow-${Environment}-ai-determination
+      Description: AI-powered document comparison and semantic analysis using Bedrock
+      CodeUri: dreams_workflow/
+      Handler: ai_determination/app.lambda_handler
+      MemorySize: 512
+      Timeout: 120
+      Environment:
+        Variables:
+          RAGIC_API_KEY: !Ref RagicApiKey
+          BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+              Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+        - S3ReadPolicy:
+            BucketName: !Ref EmailStorageBucket
+        - CloudWatchLogsFullAccess
+
+  AiDeterminationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/dreams-workflow-${Environment}-ai-determination
+      RetentionInDays: 14
+
+  # --- workflow_engine ---
+  WorkflowEngineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub dreams-workflow-${Environment}-workflow-engine
+      Description: Manages case state transitions and orchestrates service components
+      CodeUri: dreams_workflow/
+      Handler: workflow_engine/app.lambda_handler
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          RAGIC_API_KEY: !Ref RagicApiKey
+          DREAMS_API_URL: !Ref DreamsApiUrl
+          SUNVEILLANCE_API_URL: !Ref SunveillanceApiUrl
+          EMAIL_SERVICE_FUNCTION_NAME: !Ref EmailServiceFunction
+          AI_DETERMINATION_FUNCTION_NAME: !Ref AiDeterminationFunction
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref EmailServiceFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AiDeterminationFunction
+        - S3CrudPolicy:
+            BucketName: !Ref EmailStorageBucket
+        - CloudWatchLogsFullAccess
+
+  WorkflowEngineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/dreams-workflow-${Environment}-workflow-engine
+      RetentionInDays: 14
+
+  # --- email_service ---
+  EmailServiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub dreams-workflow-${Environment}-email-service
+      Description: Unified email notification service using AWS SES
+      CodeUri: dreams_workflow/
+      Handler: email_service/app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          RAGIC_API_KEY: !Ref RagicApiKey
+          SES_SENDER_EMAIL: !Ref SesSenderEmail
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  ses:FromAddress: !Ref SesSenderEmail
+        - S3CrudPolicy:
+            BucketName: !Ref EmailStorageBucket
+        - CloudWatchLogsFullAccess
+
+  EmailServiceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/dreams-workflow-${Environment}-email-service
+      RetentionInDays: 14
+
+  # --- mail_receiver ---
+  MailReceiverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub dreams-workflow-${Environment}-mail-receiver
+      Description: Processes incoming emails from SES (Taipower replies)
+      CodeUri: dreams_workflow/
+      Handler: mail_receiver/app.lambda_handler
+      MemorySize: 256
+      Timeout: 30
+      Environment:
+        Variables:
+          RAGIC_API_KEY: !Ref RagicApiKey
+          AI_DETERMINATION_FUNCTION_NAME: !Ref AiDeterminationFunction
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref EmailStorageBucket
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AiDeterminationFunction
+        - CloudWatchLogsFullAccess
+
+  MailReceiverLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/dreams-workflow-${Environment}-mail-receiver
+      RetentionInDays: 14
+
+  # Permission for S3 to invoke mail_receiver
+  MailReceiverS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MailReceiverFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !GetAtt EmailStorageBucket.Arn
+
+  # ============================================================
+  # SES Receipt Rule
+  # ============================================================
+  SesReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Ref SesReceiptRuleSetName
+
+  SesReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn:
+      - EmailStorageBucketPolicy
+      - MailReceiverS3Permission
+    Properties:
+      RuleSetName: !Ref SesReceiptRuleSet
+      Rule:
+        Name: !Sub dreams-workflow-${Environment}-incoming-mail
+        Enabled: true
+        ScanEnabled: true
+        Recipients:
+          - !Ref SesRecipientDomain
+        Actions:
+          - S3Action:
+              BucketName: !Ref EmailStorageBucket
+              ObjectKeyPrefix: incoming-emails/
+          - LambdaAction:
+              FunctionArn: !GetAtt MailReceiverFunction.Arn
+              InvocationType: Event
+
+Outputs:
+  WebhookApiUrl:
+    Description: Webhook API Gateway endpoint URL
+    Value: !Sub https://${WebhookApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/webhook
+
+  WebhookHandlerFunctionArn:
+    Description: Webhook Handler Lambda Function ARN
+    Value: !GetAtt WebhookHandlerFunction.Arn
+
+  AiDeterminationFunctionArn:
+    Description: AI Determination Lambda Function ARN
+    Value: !GetAtt AiDeterminationFunction.Arn
+
+  WorkflowEngineFunctionArn:
+    Description: Workflow Engine Lambda Function ARN
+    Value: !GetAtt WorkflowEngineFunction.Arn
+
+  EmailServiceFunctionArn:
+    Description: Email Service Lambda Function ARN
+    Value: !GetAtt EmailServiceFunction.Arn
+
+  MailReceiverFunctionArn:
+    Description: Mail Receiver Lambda Function ARN
+    Value: !GetAtt MailReceiverFunction.Arn
+
+  EmailStorageBucketName:
+    Description: S3 Bucket for email storage and logs
+    Value: !Ref EmailStorageBucket
+
+  EmailStorageBucketArn:
+    Description: S3 Bucket ARN
+    Value: !GetAtt EmailStorageBucket.Arn
