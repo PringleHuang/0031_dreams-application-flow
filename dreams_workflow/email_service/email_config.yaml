@@ -10,9 +10,43 @@ sender:
   name: "DREAMS 太陽能管理系統"
   email: "${SES_SENDER_EMAIL}"  # 從環境變數讀取
 
+# =============================================================================
+# 收件人設定
+# =============================================================================
+# recipient_field_id: Webhook payload 中客戶 email 的欄位 ID
+# ⚠️ RAGIC 表單設計可能修改，若欄位 ID 變更請更新此處
+recipient_field_id: "1016558"
+
+# =============================================================================
+# Payload 欄位 ID 對應（RAGIC 表單設計可能修改，統一在此設定）
+# =============================================================================
+payload_field_ids:
+  dreams_apply_id: "1016557"      # DREAMS_APPLY_ID 欄位 ID
+  customer_email: "1016558"       # 聯絡人郵件欄位 ID
+  shipment_order_id: "1015021"    # 出貨單號欄位 ID
+
+# =============================================================================
+# 抄送（CC）設定
+# =============================================================================
+cc:
+  # 靜態抄送名單（固定 email 地址）
+  static_list:
+    - "pringle.huang@gmail.com"
+    # - "another-cc@yourcompany.com"
+
+  # RAGIC 表單 mail loop（動態產生，每封信自動加入對應案件的 RAGIC 表單 email）
+  # 格式：{account_id}.{tab_name}.{sheet_id}.{record_id}@tickets.ragic.com
+  ragic_mail_loop:
+    enabled: true
+    account_id: "solarcs"
+    tab_name: "business-process2"
+    sheet_id: "2"
+    domain: "tickets.ragic.com"
+    # record_id 從 case_id（即 RAGIC record ID）動態帶入
+
 templates:
   questionnaire_notification:
-    subject: "DREAMS 申請 - 問卷填寫通知"
+    subject: "【DREAMS申辦】_{dreams_apply_id}_請填寫問卷提供案場的建置資訊"
     template_file: "questionnaire_notification.html"
     link:
       base_url: "https://ap13.ragic.com/solarcs/work-survey/7"
@@ -22,9 +56,7 @@ templates:
         ver: "new"
         version: "2"
       dynamic_params:
-        # pfv 預填值：將出貨編號與 DREAMS_APPLY_ID 帶入問卷
-        # 參照 https://www.ragic.com/intl/zh-TW/doc-kb/195
-        pfv1015022: "shipment_order_id"
+        # pfv 預填值：僅帶入 DREAMS_APPLY_ID，問卷會自行填入出貨編號
         pfv1016284: "dreams_apply_id"
 
   supplement_notification:

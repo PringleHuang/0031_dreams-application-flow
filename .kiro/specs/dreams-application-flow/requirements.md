@@ -48,7 +48,7 @@
 1. THE Shipment_Scanner SHALL 每天固定時間掃描公司內網 RAGIC 出貨管理表單（http://10.248.12.102/default/business-process/29），查詢狀態為「已出貨」且料號為「19.D1M01.007」的訂單
 2. WHEN Shipment_Scanner 發現符合條件的訂單，THE Shipment_Scanner SHALL 透過雲端 RAGIC API 在案件管理表單（https://ap13.ragic.com/solarcs/business-process2/2）建立新案件記錄，案件狀態設為「新開案件」
 3. WHEN 雲端 RAGIC 新案件記錄建立完成，THE Cloud_RAGIC SHALL 透過 Webhook 通知 AWS API Gateway 觸發 Lambda 函式
-4. WHEN Lambda 函式接收到新案件建立事件，THE Workflow_System SHALL 透過 AWS SES 發送問卷通知電子郵件給客戶，郵件內容包含雲端 RAGIC 問卷連結與個資聲明
+4. WHEN Lambda 函式接收到新案件建立事件，THE Workflow_System SHALL 透過 AWS SES 發送問卷通知電子郵件給客戶（收件人從 payload 欄位 ID 取得，可設定），郵件主旨為「【DREAMS申辦】_{DREAMS_APPLY_ID}_請填寫問卷提供案場的建置資訊」，郵件內容包含雲端 RAGIC 問卷連結（僅帶入 DREAMS_APPLY_ID 作為 pfv 預填值）與個資聲明，同時抄送（CC）設定的靜態名單與對應案件的 RAGIC 表單 mail loop 地址
 5. WHEN 問卷通知電子郵件發送完成，THE Workflow_System SHALL 將案件狀態更新為「待填問卷」
 6. THE Shipment_Scanner SHALL 記錄每次掃描結果，包含掃描時間、發現的訂單數量與建立的案件數量
 
@@ -178,9 +178,11 @@
 #### 驗收條件
 
 1. THE Workflow_System SHALL 透過 AWS SES 發送所有流程相關的電子郵件通知
-2. THE Workflow_System SHALL 使用 RAGIC 表單編號對應收件人電子郵件地址
-3. WHEN 電子郵件發送完成，THE Workflow_System SHALL 記錄發送時間、收件人與郵件類型
-4. IF 電子郵件發送失敗，THEN THE Workflow_System SHALL 記錄失敗原因並在指定間隔後重試發送，重試次數上限為 3 次
+2. THE Workflow_System SHALL 從 Webhook payload 中以可設定的欄位 ID（預設 1000005）取得收件人電子郵件地址，欄位 ID 定義於 `email_config.yaml` 的 `payload_field_ids.customer_email`
+3. THE Workflow_System SHALL 支援抄送（CC）功能，CC 名單由靜態名單（定義於 `email_config.yaml`）與動態產生的 RAGIC 表單 mail loop 地址（格式：`{account_id}.{tab_name}.{sheet_id}.{record_id}@tickets.ragic.com`）組成
+4. WHEN 電子郵件發送完成，THE Workflow_System SHALL 記錄發送時間、收件人與郵件類型
+5. IF 電子郵件發送失敗，THEN THE Workflow_System SHALL 記錄失敗原因並在指定間隔後重試發送，重試次數上限為 3 次
+6. THE Workflow_System SHALL 支援可設定的郵件主旨範本，主旨中可引用 payload 欄位值（如 DREAMS_APPLY_ID），所有 payload 欄位 ID 定義於 `email_config.yaml` 的 `payload_field_ids`，RAGIC 表單設計變更時僅需修改配置檔
 
 ### 需求 13：AI 佐證文件比對服務
 

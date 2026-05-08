@@ -368,7 +368,14 @@ def get_case_history(case_id: str) -> list[StatusChangeRecord]:
 
 ### 5. 郵件通知服務（email_service）
 
-**職責**：統一管理所有電子郵件的發送，包含範本管理與發送紀錄。
+**職責**：統一管理所有電子郵件的發送，包含範本管理、CC 抄送、RAGIC mail loop 整合與發送紀錄。
+
+**配置檔**：`email_service/email_config.yaml`，定義：
+- 寄件人名稱與 email（從環境變數讀取）
+- 收件人欄位 ID（從 Webhook payload 取得客戶 email）
+- Payload 欄位 ID 對應（DREAMS_APPLY_ID、客戶 email、出貨單號等，RAGIC 表單修改時僅需改此處）
+- CC 抄送設定：靜態名單 + RAGIC 表單 mail loop（`{account_id}.{tab_name}.{sheet_id}.{record_id}@tickets.ragic.com`）
+- 各郵件類型的主旨範本（支援 `{dreams_apply_id}` 等變數替換）、HTML 範本檔案、連結 pfv 參數
 
 **介面**：
 ```python
@@ -387,6 +394,7 @@ class EmailRequest:
     recipient_email: str
     template_data: dict
     attachments: list[Attachment] | None = None
+    cc_emails: list[str] | None = None
 
 @dataclass
 class EmailResult:
@@ -397,7 +405,12 @@ class EmailResult:
 
 def send_email(request: EmailRequest) -> EmailResult:
     """
-    發送電子郵件
+    發送電子郵件（含 CC 抄送）
+    
+    CC 名單自動組合：
+    1. request.cc_emails（呼叫端指定）
+    2. email_config.yaml 中的 cc.static_list
+    3. RAGIC mail loop 地址（根據 case_id 動態產生）
     
     Args:
         request: 郵件發送請求

@@ -115,7 +115,6 @@ Resources:
       StageName: !Ref Environment
       EndpointConfiguration:
         Type: REGIONAL
-      TracingEnabled: true
 
   # ============================================================
   # Lambda Functions
@@ -299,33 +298,33 @@ Resources:
       SourceArn: !GetAtt EmailStorageBucket.Arn
 
   # ============================================================
-  # SES Receipt Rule
+  # SES Receipt Rule (disabled for initial testing - enable when mail_receiver is needed)
   # ============================================================
-  SesReceiptRuleSet:
-    Type: AWS::SES::ReceiptRuleSet
-    Properties:
-      RuleSetName: !Ref SesReceiptRuleSetName
+  # SesReceiptRuleSet:
+  #   Type: AWS::SES::ReceiptRuleSet
+  #   Properties:
+  #     RuleSetName: !Ref SesReceiptRuleSetName
 
-  SesReceiptRule:
-    Type: AWS::SES::ReceiptRule
-    DependsOn:
-      - EmailStorageBucketPolicy
-      - MailReceiverS3Permission
-    Properties:
-      RuleSetName: !Ref SesReceiptRuleSet
-      Rule:
-        Name: !Sub dreams-workflow-${Environment}-incoming-mail
-        Enabled: true
-        ScanEnabled: true
-        Recipients:
-          - !Ref SesRecipientDomain
-        Actions:
-          - S3Action:
-              BucketName: !Ref EmailStorageBucket
-              ObjectKeyPrefix: incoming-emails/
-          - LambdaAction:
-              FunctionArn: !GetAtt MailReceiverFunction.Arn
-              InvocationType: Event
+  # SesReceiptRule:
+  #   Type: AWS::SES::ReceiptRule
+  #   DependsOn:
+  #     - EmailStorageBucketPolicy
+  #     - MailReceiverS3Permission
+  #   Properties:
+  #     RuleSetName: !Ref SesReceiptRuleSet
+  #     Rule:
+  #       Name: !Sub dreams-workflow-${Environment}-incoming-mail
+  #       Enabled: true
+  #       ScanEnabled: true
+  #       Recipients:
+  #         - !Ref SesRecipientDomain
+  #       Actions:
+  #         - S3Action:
+  #             BucketName: !Ref EmailStorageBucket
+  #             ObjectKeyPrefix: incoming-emails/
+  #         - LambdaAction:
+  #             FunctionArn: !GetAtt MailReceiverFunction.Arn
+  #             InvocationType: Event
 
 Outputs:
   WebhookApiUrl:

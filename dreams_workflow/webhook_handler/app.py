@@ -192,8 +192,8 @@ def validate_webhook_source(headers: dict, body: str) -> bool:
     Returns:
         True if the request is valid, False otherwise.
     """
-    if not WEBHOOK_SECRET:
-        # No secret configured — skip validation (development/testing mode)
+    if not WEBHOOK_SECRET or WEBHOOK_SECRET == "skip":
+        # No secret configured or set to "skip" — skip validation (development/testing mode)
         logger.warning(
             "WEBHOOK_SECRET not configured, skipping validation",
             extra={"case_id": "N/A", "operation_type": "webhook_validation_skip"},

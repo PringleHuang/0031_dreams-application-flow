@@ -75,6 +75,7 @@ class EmailRequest:
     recipient_email: str
     template_data: dict
     attachments: list[Attachment] | None = None
+    cc_emails: list[str] | None = None
 
 
 @dataclass
@@ -188,6 +189,55 @@ class EmailConfig:
         except (KeyError, IndexError):
             return subject_template
 
+    @property
+    def recipient_field_id(self) -> str:
+        """Get the RAGIC field ID for recipient email in webhook payload."""
+        return self._config.get("recipient_field_id", "1000005")
+
+    def get_payload_field_ids(self) -> dict[str, str]:
+        """Get configurable payload field IDs.
+
+        Returns a mapping of logical name → RAGIC field ID, allowing
+        the system to adapt when RAGIC form design changes.
+
+        Returns:
+            Dict like {"dreams_apply_id": "1016557", "customer_email": "1000005", ...}
+        """
+        return self._config.get("payload_field_ids", {})
+
+    def get_cc_list(self, case_id: str) -> list[str]:
+        """Build the CC recipient list for a given case.
+
+        Combines:
+        1. Static CC list from config
+        2. RAGIC mail loop address (dynamic, based on case record ID)
+
+        Args:
+            case_id: The RAGIC record ID (used for mail loop address).
+
+        Returns:
+            List of CC email addresses.
+        """
+        cc_config = self._config.get("cc", {})
+        cc_list: list[str] = []
+
+        # Static CC list
+        static_list = cc_config.get("static_list") or []
+        cc_list.extend(static_list)
+
+        # RAGIC mail loop (dynamic)
+        mail_loop = cc_config.get("ragic_mail_loop", {})
+        if mail_loop.get("enabled") and case_id:
+            account_id = mail_loop.get("account_id", "")
+            tab_name = mail_loop.get("tab_name", "")
+            sheet_id = mail_loop.get("sheet_id", "")
+            domain = mail_loop.get("domain", "tickets.ragic.com")
+            # Format: {account_id}.{tab_name}.{sheet_id}.{record_id}@tickets.ragic.com
+            ragic_email = f"{account_id}.{tab_name}.{sheet_id}.{case_id}@{domain}"
+            cc_list.append(ragic_email)
+
+        return cc_list
+
     @staticmethod
     def _email_type_to_config_key(email_type: EmailType) -> str:
         """Map EmailType enum to config YAML key."""
@@ -262,11 +312,18 @@ def send_email(request: EmailRequest) -> EmailResult:
     # Build sender address
     sender = f"{config.sender_name} <{config.sender_email}>"
 
+    # Build CC list: request-level CC + config-level CC (static + RAGIC mail loop)
+    cc_list = list(request.cc_emails or [])
+    config_cc = config.get_cc_list(request.case_id)
+    for cc_addr in config_cc:
+        if cc_addr not in cc_list:
+            cc_list.append(cc_addr)
+
     log_operation(
         logger,
         case_id=request.case_id,
         operation_type="email_sending",
-        message=f"Sending {request.email_type.value} to {request.recipient_email}",
+        message=f"Sending {request.email_type.value} to {request.recipient_email}, cc={cc_list}",
     )
 
     try:
@@ -277,6 +334,7 @@ def send_email(request: EmailRequest) -> EmailResult:
                 subject=subject,
                 html_body=html_body,
                 attachments=request.attachments,
+                cc=cc_list,
             )
         else:
             message_id = _send_simple_email(
@@ -284,6 +342,7 @@ def send_email(request: EmailRequest) -> EmailResult:
                 recipient=request.recipient_email,
                 subject=subject,
                 html_body=html_body,
+                cc=cc_list,
             )
 
         sent_at = datetime.now(timezone.utc).isoformat()
@@ -340,6 +399,7 @@ def _send_simple_email(
     recipient: str,
     subject: str,
     html_body: str,
+    cc: list[str] | None = None,
 ) -> str:
     """Send a simple HTML email without attachments via SES.
 
@@ -347,9 +407,13 @@ def _send_simple_email(
         SES MessageId.
     """
     ses = _get_ses_client()
+    destination: dict = {"ToAddresses": [recipient]}
+    if cc:
+        destination["CcAddresses"] = cc
+
     response = ses.send_email(
         Source=sender,
-        Destination={"ToAddresses": [recipient]},
+        Destination=destination,
         Message={
             "Subject": {"Data": subject, "Charset": "UTF-8"},
             "Body": {"Html": {"Data": html_body, "Charset": "UTF-8"}},
@@ -364,6 +428,7 @@ def _send_raw_email(
     subject: str,
     html_body: str,
     attachments: list[Attachment],
+    cc: list[str] | None = None,
 ) -> str:
     """Send a raw MIME email with attachments via SES.
 
@@ -374,6 +439,8 @@ def _send_raw_email(
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = recipient
+    if cc:
+        msg["Cc"] = ", ".join(cc)
 
     # HTML body part
     body_part = MIMEText(html_body, "html", "utf-8")
@@ -391,9 +458,10 @@ def _send_raw_email(
         msg.attach(att_part)
 
     ses = _get_ses_client()
+    all_recipients = [recipient] + (cc or [])
     response = ses.send_raw_email(
         Source=sender,
-        Destinations=[recipient],
+        Destinations=all_recipients,
         RawMessage={"Data": msg.as_string()},
     )
     return response["MessageId"]
