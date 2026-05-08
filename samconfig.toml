@@ -5,14 +5,14 @@
 version = 0.1
 
 [default.deploy.parameters]
-stack_name = "dreams-workflow-prod"
+stack_name = "dreams-workflow-dev"
 region = "ap-northeast-1"
 resolve_s3 = true
-s3_prefix = "dreams-workflow"
+s3_prefix = "dreams-workflow-dev"
 capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
-confirm_changeset = true
-parameter_overrides = "Environment=prod"
-tags = "Project=dreams-workflow Environment=prod Team=solar-energy"
+confirm_changeset = false
+parameter_overrides = "Environment=dev"
+tags = "Project=dreams-workflow Environment=dev Team=solar-energy"
 
 [default.build.parameters]
 use_container = false
@@ -27,7 +27,7 @@ watch = true
 [default.local_start_api.parameters]
 warm_containers = "EAGER"
 
-# Development environment
+# Development environment (same as default, kept for explicit --config-env dev usage)
 [dev.deploy.parameters]
 stack_name = "dreams-workflow-dev"
 region = "ap-northeast-1"
@@ -37,6 +37,17 @@ capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
 confirm_changeset = false
 parameter_overrides = "Environment=dev"
 tags = "Project=dreams-workflow Environment=dev Team=solar-energy"
+
+# Production environment (MUST use: sam deploy --config-env prod)
+[prod.deploy.parameters]
+stack_name = "dreams-workflow-prod"
+region = "ap-northeast-1"
+resolve_s3 = true
+s3_prefix = "dreams-workflow"
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+confirm_changeset = true
+parameter_overrides = "Environment=prod"
+tags = "Project=dreams-workflow Environment=prod Team=solar-energy"
 
 # Staging environment
 [staging.deploy.parameters]

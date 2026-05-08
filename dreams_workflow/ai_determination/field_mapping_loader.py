@@ -81,7 +81,14 @@ def get_taipower_result_mapping() -> dict[str, str]:
 def get_status_field_id() -> str:
     """Get the case status field ID in the case management form."""
     config = load_field_mapping()
-    return config.get("status_field_id", "1015456")
+    if "status_field_id" in config:
+        return config["status_field_id"]
+    # Fallback to ragic_fields.yaml
+    try:
+        from dreams_workflow.shared.ragic_fields_config import get_field_id
+        return get_field_id("case_management", "case_status", "1015456")
+    except Exception:
+        return "1015456"
 
 
 def build_complete_write_payload(
@@ -165,7 +172,14 @@ def get_supplement_form_path() -> str:
 def get_supplement_params_field_id() -> str:
     """Get the supplement params field ID in the supplement form."""
     config = load_field_mapping()
-    return config.get("supplement_params_field_id", "1016697")
+    if "supplement_params_field_id" in config:
+        return config["supplement_params_field_id"]
+    # Fallback to ragic_fields.yaml
+    try:
+        from dreams_workflow.shared.ragic_fields_config import get_field_id
+        return get_field_id("determination_results", "supplement_params", "1016697")
+    except Exception:
+        return "1016697"
 
 
 def get_dreams_apply_id_fields() -> dict[str, str]:

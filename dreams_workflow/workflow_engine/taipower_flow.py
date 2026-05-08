@@ -124,15 +124,18 @@ def _build_case_data(case_id: str, payload: dict) -> dict:
     Returns:
         Dict with case data fields for the DREAMS API.
     """
-    # Extract from payload (field IDs from RAGIC case management form)
+    # Extract from payload (field IDs from ragic_fields.yaml)
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
+
+    cm_fields = get_case_management_fields()
     case_data = {
-        "electricity_number": payload.get("1015407", payload.get("electricity_number", "")),
-        "customer_name": payload.get("1015398", payload.get("customer_name", "")),
-        "site_address": payload.get("1015399", payload.get("site_address", "")),
-        "site_name": payload.get("1014670", payload.get("site_name", "")),
-        "capacity_kw": payload.get("1015409", payload.get("capacity_kw", "")),
-        "connection_method": payload.get("1015415", payload.get("connection_method", "")),
-        "selling_method": payload.get("1015414", payload.get("selling_method", "")),
+        "electricity_number": payload.get(cm_fields.get("electricity_number", "1015407"), payload.get("electricity_number", "")),
+        "customer_name": payload.get(cm_fields.get("customer_name", "1015398"), payload.get("customer_name", "")),
+        "site_address": payload.get(cm_fields.get("site_address", "1015399"), payload.get("site_address", "")),
+        "site_name": payload.get(cm_fields.get("site_name", "1014670"), payload.get("site_name", "")),
+        "capacity_kw": payload.get(cm_fields.get("capacity_kw", "1015409"), payload.get("capacity_kw", "")),
+        "connection_method": payload.get(cm_fields.get("connection_method", "1015415"), payload.get("connection_method", "")),
+        "selling_method": payload.get(cm_fields.get("selling_method", "1015414"), payload.get("selling_method", "")),
     }
 
     # If key fields are missing, try to fetch from RAGIC
@@ -141,11 +144,11 @@ def _build_case_data(case_id: str, payload: dict) -> dict:
             ragic_client = CloudRagicClient()
             try:
                 record = ragic_client.get_questionnaire_data(case_id)
-                case_data["electricity_number"] = record.get("1015407", "")
+                case_data["electricity_number"] = record.get(cm_fields.get("electricity_number", "1015407"), "")
                 if not case_data["customer_name"]:
-                    case_data["customer_name"] = record.get("1015398", "")
+                    case_data["customer_name"] = record.get(cm_fields.get("customer_name", "1015398"), "")
                 if not case_data["site_address"]:
-                    case_data["site_address"] = record.get("1015399", "")
+                    case_data["site_address"] = record.get(cm_fields.get("site_address", "1015399"), "")
             finally:
                 ragic_client.close()
         except Exception as e:

@@ -126,8 +126,8 @@ Resources:
     Properties:
       FunctionName: !Sub dreams-workflow-${Environment}-webhook-handler
       Description: Receives and validates RAGIC Webhook requests, routes to appropriate handlers
-      CodeUri: dreams_workflow/
-      Handler: webhook_handler/app.lambda_handler
+      CodeUri: .
+      Handler: dreams_workflow.webhook_handler.app.lambda_handler
       MemorySize: 256
       Timeout: 30
       Environment:
@@ -163,8 +163,8 @@ Resources:
     Properties:
       FunctionName: !Sub dreams-workflow-${Environment}-ai-determination
       Description: AI-powered document comparison and semantic analysis using Bedrock
-      CodeUri: dreams_workflow/
-      Handler: ai_determination/app.lambda_handler
+      CodeUri: .
+      Handler: dreams_workflow.ai_determination.app.lambda_handler
       MemorySize: 512
       Timeout: 120
       Environment:
@@ -196,8 +196,8 @@ Resources:
     Properties:
       FunctionName: !Sub dreams-workflow-${Environment}-workflow-engine
       Description: Manages case state transitions and orchestrates service components
-      CodeUri: dreams_workflow/
-      Handler: workflow_engine/app.lambda_handler
+      CodeUri: .
+      Handler: dreams_workflow.workflow_engine.app.lambda_handler
       MemorySize: 256
       Timeout: 60
       Environment:
@@ -229,8 +229,8 @@ Resources:
     Properties:
       FunctionName: !Sub dreams-workflow-${Environment}-email-service
       Description: Unified email notification service using AWS SES
-      CodeUri: dreams_workflow/
-      Handler: email_service/app.lambda_handler
+      CodeUri: .
+      Handler: dreams_workflow.email_service.app.lambda_handler
       MemorySize: 256
       Timeout: 30
       Environment:
@@ -265,8 +265,8 @@ Resources:
     Properties:
       FunctionName: !Sub dreams-workflow-${Environment}-mail-receiver
       Description: Processes incoming emails from SES (Taipower replies)
-      CodeUri: dreams_workflow/
-      Handler: mail_receiver/app.lambda_handler
+      CodeUri: .
+      Handler: dreams_workflow.mail_receiver.app.lambda_handler
       MemorySize: 256
       Timeout: 30
       Environment:

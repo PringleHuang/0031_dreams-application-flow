@@ -185,8 +185,13 @@ class EmailConfig:
     def render_subject(self, subject_template: str, template_data: dict) -> str:
         """Render email subject with template data substitution."""
         try:
-            return subject_template.format(**template_data)
-        except (KeyError, IndexError):
+            result = subject_template.format(**template_data)
+            return result
+        except (KeyError, IndexError) as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Subject render failed: {e}, template={subject_template}, keys={list(template_data.keys())}"
+            )
             return subject_template
 
     @property
@@ -306,6 +311,10 @@ def send_email(request: EmailRequest) -> EmailResult:
         enriched_data.setdefault("login_url", questionnaire_url)
 
     # Render subject and body
+    logger.info(
+        f"DEBUG enriched_data keys: {list(enriched_data.keys())}, dreams_apply_id={enriched_data.get('dreams_apply_id', 'NOT_FOUND')}",
+        extra={"case_id": request.case_id, "operation_type": "email_debug_template_data"},
+    )
     subject = config.render_subject(template_config["subject"], enriched_data)
     html_body = config.render_template(template_config["template_file"], enriched_data)
 

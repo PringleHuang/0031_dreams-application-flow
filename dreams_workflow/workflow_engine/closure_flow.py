@@ -138,13 +138,16 @@ def _get_site_data(case_id: str, payload: dict) -> dict:
     # If key fields missing, fetch from RAGIC
     if not site_data["site_name"]:
         try:
+            from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
+
+            cm_fields = get_case_management_fields()
             ragic_client = CloudRagicClient()
             try:
                 record = ragic_client.get_questionnaire_data(case_id)
-                site_data["site_name"] = record.get("1014670", "")
-                site_data["site_address"] = record.get("1015399", "")
-                site_data["capacity_kw"] = record.get("1015409", "")
-                site_data["electricity_number"] = record.get("1015407", "")
+                site_data["site_name"] = record.get(cm_fields.get("site_name", "1014670"), "")
+                site_data["site_address"] = record.get(cm_fields.get("site_address", "1015399"), "")
+                site_data["capacity_kw"] = record.get(cm_fields.get("capacity_kw", "1015409"), "")
+                site_data["electricity_number"] = record.get(cm_fields.get("electricity_number", "1015407"), "")
             finally:
                 ragic_client.close()
         except Exception as e:

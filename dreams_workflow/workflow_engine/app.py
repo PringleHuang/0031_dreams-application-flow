@@ -146,8 +146,12 @@ def handle_new_case(case_id: str, payload: dict) -> dict:
         message="Processing new case creation event",
     )
 
-    # Extract customer email from payload
-    customer_email = payload.get("customer_email", "")
+    # Extract customer email from payload using configurable field ID
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
+
+    cm_fields = get_case_management_fields()
+    recipient_field_id = cm_fields.get("customer_email", "1016558")
+    customer_email = payload.get(recipient_field_id, payload.get("customer_email", ""))
     if not customer_email:
         # Try to get from RAGIC if not in payload
         customer_email = _get_customer_email(case_id)
@@ -162,6 +166,10 @@ def handle_new_case(case_id: str, payload: dict) -> dict:
         )
         return {"error": "No customer email found", "case_id": case_id}
 
+    # Extract dreams_apply_id from payload using configurable field ID
+    dreams_apply_id_field = cm_fields.get("dreams_apply_id", "1016557")
+    dreams_apply_id = payload.get(dreams_apply_id_field, payload.get("dreams_apply_id", ""))
+
     # Step 1: Send questionnaire notification email
     _invoke_email_service(
         case_id=case_id,
@@ -170,6 +178,7 @@ def handle_new_case(case_id: str, payload: dict) -> dict:
         template_data={
             "customer_name": payload.get("customer_name", ""),
             "case_id": case_id,
+            "dreams_apply_id": dreams_apply_id,
         },
     )
 
@@ -294,10 +303,16 @@ def handle_status_change(case_id: str, payload: dict) -> dict:
 
     Requirements: 3.4, 3.5, 3.6, 10.4
     """
-    new_status_value = payload.get("case_status", payload.get("status", ""))
+    # Read case status from payload using configurable field ID
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
+
+    cm_fields = get_case_management_fields()
+    case_status_field_id = cm_fields.get("case_status", "1015456")
+    new_status_value = payload.get(case_status_field_id, payload.get("case_status", payload.get("status", "")))
 
     # Resolve RAGIC record ID from DREAMS_APPLY_ID if available
-    dreams_apply_id = payload.get("1016557", payload.get("dreams_apply_id", ""))
+    dreams_apply_id_field = cm_fields.get("dreams_apply_id", "1016557")
+    dreams_apply_id = payload.get(dreams_apply_id_field, payload.get("dreams_apply_id", ""))
     if dreams_apply_id and "-" in dreams_apply_id:
         # Split by "-" and take the last segment as record ID
         parts = dreams_apply_id.split("-")
@@ -414,8 +429,10 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
         )
 
     # Get case info for email
-    shipment_order_id = payload.get("shipment_order_id", payload.get("1015021", ""))
-    dreams_apply_id = payload.get("dreams_apply_id", payload.get("1016557", ""))
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields as _get_cm_fields
+    _cm = _get_cm_fields()
+    shipment_order_id = payload.get(_cm.get("shipment_order_id", "1015021"), payload.get("shipment_order_id", ""))
+    dreams_apply_id = payload.get(_cm.get("dreams_apply_id", "1016557"), payload.get("dreams_apply_id", ""))
     customer_email = payload.get("customer_email", "")
 
     if not customer_email:
@@ -543,8 +560,10 @@ def _handle_taipower_supplement_trigger(case_id: str, payload: dict) -> dict:
         )
 
     # Get case info for email
-    shipment_order_id = payload.get("shipment_order_id", payload.get("1015021", ""))
-    dreams_apply_id = payload.get("dreams_apply_id", payload.get("1016557", ""))
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields as _get_cm_fields2
+    _cm2 = _get_cm_fields2()
+    shipment_order_id = payload.get(_cm2.get("shipment_order_id", "1015021"), payload.get("shipment_order_id", ""))
+    dreams_apply_id = payload.get(_cm2.get("dreams_apply_id", "1016557"), payload.get("dreams_apply_id", ""))
     customer_email = payload.get("customer_email", "")
 
     if not customer_email:

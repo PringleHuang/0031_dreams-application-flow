@@ -39,6 +39,10 @@ Thumbs.db
 
 # AWS SAM
 .aws-sam/
+samconfig.toml
+
+# Reference projects (not part of this codebase)
+refer/
 
 # Kiro personal settings
 .kiro/settings/

@@ -1,0 +1,21 @@
+# Exclude from Lambda deployment package
+tests/
+docs/
+refer/
+.git/
+.venv/
+.hypothesis/
+.pytest_cache/
+.pytest_cache copy/
+.aws-sam/
+.kiro/
+.vscode/
+*.md
+*.toml
+requirements-dev.txt
+requirements-runtime.txt
+activate_AWS_account.ps1
+template.yaml
+samconfig.toml
+.gitignore
+.samignore

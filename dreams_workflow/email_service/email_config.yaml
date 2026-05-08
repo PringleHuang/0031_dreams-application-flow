@@ -24,20 +24,22 @@ payload_field_ids:
   dreams_apply_id: "1016557"      # DREAMS_APPLY_ID 欄位 ID
   customer_email: "1016558"       # 聯絡人郵件欄位 ID
   shipment_order_id: "1015021"    # 出貨單號欄位 ID
+  case_status: "1015456"          # 案件狀態欄位 ID
 
 # =============================================================================
 # 抄送（CC）設定
 # =============================================================================
 cc:
   # 靜態抄送名單（固定 email 地址）
-  static_list:
-    - "pringle.huang@gmail.com"
-    # - "another-cc@yourcompany.com"
+  # ⚠️ SES sandbox 模式下，CC 收件人也需要先驗證
+  static_list: []
+    # - "pringle.huang@gmail.com"
 
   # RAGIC 表單 mail loop（動態產生，每封信自動加入對應案件的 RAGIC 表單 email）
   # 格式：{account_id}.{tab_name}.{sheet_id}.{record_id}@tickets.ragic.com
+  # ⚠️ SES sandbox 模式下需關閉，production 模式再啟用
   ragic_mail_loop:
-    enabled: true
+    enabled: false
     account_id: "solarcs"
     tab_name: "business-process2"
     sheet_id: "2"

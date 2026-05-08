@@ -133,7 +133,7 @@ class CloudRagicClient:
 
         Args:
             url: Full request URL.
-            data: JSON payload.
+            data: JSON payload (field_id: value pairs only).
 
         Returns:
             Parsed JSON response as dict.
@@ -141,22 +141,51 @@ class CloudRagicClient:
         Raises:
             RagicCommunicationError: On request failure.
         """
-        params = {"api": "", "v": 3}
-
-        # RAGIC write parameters to ensure correct data processing
-        data = dict(data)  # Don't mutate the original
-        data.setdefault("doLinkLoad", "first")
-        data.setdefault("doFormula", True)
-        data.setdefault("doDefaultValue", True)
+        # RAGIC API control parameters go in query string, not body
+        params = {
+            "api": "",
+            "v": 3,
+            "doFormula": "true",
+            "doDefaultValue": "true",
+            "doLinkLoad": "first",
+        }
 
         try:
+            # Log request details for debugging
+            import json as _json
+            logger.warning(
+                f"[RAGIC_DEBUG] POST url={url} params={params} data={_json.dumps(data, ensure_ascii=False)}",
+                extra={"case_id": "N/A", "operation_type": "ragic_debug_request"},
+            )
+
             resp = self._session.post(
                 url, params=params, json=data, timeout=self.timeout
             )
+
+            # Log full response regardless of status for debugging
+            logger.warning(
+                f"[RAGIC_DEBUG] RESPONSE status={resp.status_code} body={repr(resp.text[:500])}",
+                extra={"case_id": "N/A", "operation_type": "ragic_debug_response"},
+            )
+
             resp.raise_for_status()
-            # RAGIC POST may return empty body on success
+
+            # RAGIC may return HTTP 200 but with error in body
+            # e.g. {'status': 'INVALID', 'code': 202, 'msg': '欄位 X 為必填'}
             if resp.text:
-                return resp.json()
+                try:
+                    result = resp.json()
+                except ValueError:
+                    return {"_raw_response": resp.text[:500]}
+
+                # Check for RAGIC-level error in response
+                if isinstance(result, dict) and result.get("status") == "INVALID":
+                    error_msg = result.get("msg", "Unknown RAGIC error")
+                    raise RagicCommunicationError(
+                        service_name="RAGIC",
+                        message=f"RAGIC rejected write: {error_msg} (code={result.get('code')})",
+                    )
+                return result
             return {}
         except requests.exceptions.HTTPError as e:
             raise RagicCommunicationError(
@@ -222,14 +251,11 @@ class CloudRagicClient:
         )
         record_data = self._get(url)
 
-        # Known attachment field IDs (from config)
-        attachment_field_ids = [
-            "1014650",  # 審訖圖
-            "1014651",  # 縣府同意備案函文
-            "1014652",  # 細部協商
-            "1014653",  # 購售電契約封面及內文第一頁
-            "1014654",  # 併聯審查意見書
-        ]
+        # Known attachment field IDs (from ragic_fields.yaml)
+        from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
+
+        doc_fields = get_document_attachment_fields()
+        attachment_field_ids = list(doc_fields.values())
 
         documents: list[tuple[str, bytes]] = []
         for field_id in attachment_field_ids:
@@ -320,6 +346,7 @@ class CloudRagicClient:
     def update_case_status(self, case_id: str, status: str) -> None:
         """Update the case status in RAGIC case management form.
 
+        Writes to the case status field (field ID from ragic_fields.yaml).
         This will trigger a RAGIC Webhook for status change events.
 
         Args:
@@ -327,14 +354,20 @@ class CloudRagicClient:
             status: The new status value string.
         """
         url = self._build_url(self.case_form_path, self.case_form_index, case_id)
-        # Use the status field - exact field ID depends on form config
-        data = {"status": status}
+        # Use the configurable case status field ID
+        try:
+            from dreams_workflow.shared.ragic_fields_config import get_field_id
+            status_field_id = get_field_id("case_management", "case_status", "1015456")
+        except Exception:
+            status_field_id = "1015456"
+
+        data = {status_field_id: status}
 
         log_operation(
             logger,
             case_id=case_id,
             operation_type="ragic_update_status",
-            message=f"Updating case {case_id} status to '{status}'",
+            message=f"Updating case {case_id} field {status_field_id} to '{status}'",
         )
         self._post(url, data)
 
