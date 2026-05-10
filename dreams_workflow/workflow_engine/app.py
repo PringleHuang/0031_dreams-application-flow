@@ -219,8 +219,13 @@ def handle_questionnaire_response(
     - Renewal (續約): Update status to "續約處理"
     - New contract (新約): Trigger AI determination (handled by ai_determination Lambda)
 
+    Note: Questionnaire webhooks come from work-survey/7 and don't contain
+    case status. The case_id passed here is the ragicId from the questionnaire
+    record, NOT the case management record. We need to resolve the actual
+    case ragicId from DREAMS_APPLY_ID.
+
     Args:
-        case_id: The RAGIC case record ID.
+        case_id: The RAGIC record ID from the questionnaire form (NOT case management).
         payload: Webhook payload containing questionnaire data.
         is_renewal: Whether this is a renewal questionnaire response.
 
@@ -229,11 +234,18 @@ def handle_questionnaire_response(
 
     Requirements: 2.4, 2.5, 2.6, 2.7, 2.8
     """
+    from dreams_workflow.shared.case_resolver import resolve_case_context, resolve_ragic_id_from_payload
+
+    # Resolve the actual case ragicId from DREAMS_APPLY_ID in the questionnaire payload
+    resolved_case_id = resolve_ragic_id_from_payload(payload)
+    if resolved_case_id:
+        case_id = resolved_case_id
+
     log_operation(
         logger,
         case_id=case_id,
         operation_type="handle_questionnaire_response",
-        message=f"Processing questionnaire response (is_renewal={is_renewal})",
+        message=f"Processing questionnaire response (is_renewal={is_renewal}, resolved_case_id={case_id})",
     )
 
     if is_renewal:

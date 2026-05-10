@@ -168,8 +168,13 @@
 #### 驗收條件
 
 1. WHEN RAGIC 發送 Webhook 請求至 AWS API Gateway，THE API Gateway SHALL 驗證請求來源並將請求轉發至對應的 Lambda 函式
-2. THE Workflow_System SHALL 根據 Webhook 內容區分事件類型為「新案件建立」、「案件狀態變更」、「續約問卷回覆」、「新約完整問卷回覆」或「補件問卷回覆」
-3. IF Webhook 請求驗證失敗，THEN THE API Gateway SHALL 回傳 HTTP 401 錯誤碼並記錄異常事件
+2. THE Workflow_System SHALL 根據 Webhook payload 中的 `path` 和 `sheetIndex` 進行第一層事件分類：
+   - `business-process2/2`：根據 `1015456`（案件狀態）欄位值區分「新案件建立」或「案件狀態變更」
+   - `work-survey/7`：分類為「問卷回覆」（新約/續約的區分由下游 Lambda 查詢案件管理表決定）
+   - `work-survey/9`：分類為「補件問卷回覆」（資訊補件/台電補件的區分由下游 Lambda 查詢案件管理表的 `1015456` 決定）
+3. WHEN 事件來自 `work-survey/7` 或 `work-survey/9`，THE 下游 Lambda SHALL 從 payload 的 DREAMS_APPLY_ID 欄位以 "-" split 取最後一段作為案件 ragicId，再呼叫 RAGIC API 查詢 `business-process2/2/{ragicId}` 取得案件狀態與類型
+4. IF Webhook 請求驗證失敗，THEN THE API Gateway SHALL 回傳 HTTP 401 錯誤碼並記錄異常事件
+5. THE Workflow_System SHALL 對同一 case_id + event_type 在 60 秒內僅處理一次，避免 RAGIC 重複觸發造成重複操作
 
 ### 需求 12：電子郵件通知服務
 

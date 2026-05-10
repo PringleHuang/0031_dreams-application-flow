@@ -179,15 +179,38 @@ def validate_webhook_source(headers: dict, body: str) -> bool:
 
 def classify_webhook_event(payload: dict) -> WebhookEventType:
     """
-    根據表單 ID 與欄位內容區分事件類型
+    根據表單 ID 與欄位內容區分事件類型（第一層分類）
     
     Returns:
         WebhookEventType:
-          - NEW_CASE_CREATED: 來自 business-process2/2 且狀態欄位為「新開案件」（由出貨掃描服務觸發）
-          - CASE_STATUS_CHANGED: 來自 business-process2/2 的案件狀態變更（由人工或系統觸發）
-          - RENEWAL_QUESTIONNAIRE: 來自 work-survey/7 的續約問卷回覆
-          - NEW_CONTRACT_FULL_QUESTIONNAIRE: 來自 work-survey/7 的新約完整問卷回覆
-          - SUPPLEMENTARY_QUESTIONNAIRE: 來自補件表單的補件問卷回覆
+          - NEW_CASE_CREATED: 來自 business-process2/2 且狀態欄位(1015456)為「新開案件」
+          - CASE_STATUS_CHANGED: 來自 business-process2/2 的其他狀態變更
+          - RENEWAL_QUESTIONNAIRE: 來自 work-survey/7 且案件類型為「續約」
+          - NEW_CONTRACT_FULL_QUESTIONNAIRE: 來自 work-survey/7 且案件類型為「新約」
+          - SUPPLEMENTARY_QUESTIONNAIRE: 來自 work-survey/9 的補件問卷回覆
+    
+    注意：
+      - business-process2/2 的 payload 直接包含 1015456（案件狀態），可直接判斷
+      - work-survey/7 的 payload 不包含案件狀態，需由下游 Lambda 從 DREAMS_APPLY_ID
+        解析 ragicId 後查詢案件管理表取得案件類型（新約/續約）
+      - work-survey/9 的 payload 不包含案件狀態，需由下游 Lambda 從 DREAMS_APPLY_ID
+        解析 ragicId 後查詢案件管理表的 1015456 欄位，區分「資訊補件」或「台電補件」
+    """
+    pass
+
+# 下游 Lambda 的二次分類邏輯（workflow_engine / ai_determination）
+def resolve_case_context(payload: dict) -> dict:
+    """
+    從問卷/補件 webhook payload 中解析案件上下文
+    
+    流程：
+    1. 從 payload 取得 DREAMS_APPLY_ID（欄位 ID 從 ragic_fields.yaml 讀取）
+    2. 以 "-" split 取最後一段作為案件 ragicId
+    3. 呼叫 RAGIC API: GET business-process2/2/{ragicId}
+    4. 從回應中讀取 1015456（案件狀態）及其他必要欄位
+    
+    Returns:
+        dict: {"ragic_id": str, "case_status": str, "case_type": str, ...}
     """
     pass
 ```
@@ -206,10 +229,17 @@ def classify_webhook_event(payload: dict) -> WebhookEventType:
 - **群組邏輯**：併聯方式、併聯點型式、併聯點電壓三項為同一群組（代碼 L），任一項 Fail 則三項一起補件；責任分界點型式、責任分界點電壓兩項為同一群組（代碼 M），任一項 Fail 則兩項一起補件
 
 **DREAMS_APPLY_ID 解析規則**：
-- Webhook payload 中包含 DREAMS_APPLY_ID 欄位
-- 以 "-" split 取第二段即為案件管理表單的 RAGIC record ID
+- Webhook payload 中包含 DREAMS_APPLY_ID 欄位（欄位 ID 從 `ragic_fields.yaml` 的 `case_management.dreams_apply_id` 讀取）
+- 格式為 `{出貨單號}-{ragicId}`，例如 `TEST0011-17`
+- 以 "-" split 取**最後一段**即為案件管理表單的 RAGIC record ID
 - 此 ID 用於 API URL：`https://ap13.ragic.com/solarcs/business-process2/2/{record_id}`
 - DREAMS案場申請單（work-survey/7）與 DREAMS案場-補單（work-survey/9）的 Webhook 都使用此機制定位目標案件記錄
+
+**問卷/補件 Webhook 的二次分類流程**：
+- `work-survey/7`（資訊問卷）：webhook_handler 先分類為 `NEW_CONTRACT_FULL_QUESTIONNAIRE`（預設），下游 Lambda 再從案件管理表查詢案件類型欄位，若為「續約」則改走續約流程
+- `work-survey/9`（補件問卷）：webhook_handler 分類為 `SUPPLEMENTARY_QUESTIONNAIRE`，下游 Lambda 從案件管理表查詢 `1015456`（案件狀態），根據狀態值區分：
+  - 狀態 = 「資訊補件」→ 走資訊補件流程（AI 重新判定）
+  - 狀態 = 「台電補件」→ 走台電補件流程（重新申請台電）
 
 **AI 判定流程（問卷回覆觸發後）**：
 1. 收到 Webhook（含問卷資料，但缺附件），從 DREAMS_APPLY_ID 解析目標 record ID

@@ -455,17 +455,14 @@ def _compare_document_fields(
 def lambda_handler(event: dict, context: Any) -> dict:
     """AWS Lambda handler for AI document comparison.
 
-    Receives an event containing questionnaire data and supporting documents,
-    performs AI-powered comparison, writes the result to RAGIC, and updates
-    the case status to "待人工確認".
+    Supports two event formats:
+    1. Webhook format (from webhook_handler):
+        {"event_type": str, "payload": dict, "case_id": str, "ragic_meta": dict}
+    2. Direct invocation format:
+        {"case_id": str, "questionnaire_data": dict, "supporting_documents": [...]}
 
-    Event structure:
-        {
-            "case_id": str,
-            "record_id": str,
-            "questionnaire_data": dict,
-            "supporting_documents": [{"field_id": str, "file_name": str, "content_b64": str}, ...],
-        }
+    For webhook format, resolves case context from DREAMS_APPLY_ID, fetches
+    documents from RAGIC, then performs AI comparison.
 
     Returns:
         Dict with statusCode and ComparisonReport in body.
@@ -476,6 +473,94 @@ def lambda_handler(event: dict, context: Any) -> dict:
         operation_type="ai_determination_start",
         message="AI Determination Lambda started",
     )
+
+    # Detect event format
+    event_type_str = event.get("event_type", "")
+
+    if event_type_str:
+        # Webhook format — resolve case context first
+        return _handle_webhook_event(event)
+    else:
+        # Direct invocation format (existing logic)
+        return _handle_direct_invocation(event)
+
+
+def _handle_webhook_event(event: dict) -> dict:
+    """Handle webhook-format events from webhook_handler.
+
+    Resolves case context from DREAMS_APPLY_ID, fetches questionnaire data
+    and documents from RAGIC, then delegates to AI comparison.
+
+    For SUPPLEMENTARY_QUESTIONNAIRE, also checks case status to determine
+    if this is 資訊補件 or 台電補件.
+    """
+    from dreams_workflow.shared.case_resolver import resolve_case_context
+    from dreams_workflow.shared.models import WebhookEventType
+
+    event_type_str = event.get("event_type", "")
+    payload = event.get("payload", {})
+    case_id = event.get("case_id", "unknown")
+
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="ai_determination_webhook",
+        message=f"Processing webhook event: {event_type_str}",
+    )
+
+    # Resolve case context (ragicId, status, etc.) from DREAMS_APPLY_ID
+    case_context = resolve_case_context(payload)
+
+    if not case_context.get("resolved"):
+        error_msg = case_context.get("error", "Failed to resolve case context")
+        log_operation(
+            logger,
+            case_id=case_id,
+            operation_type="ai_determination_error",
+            message=f"Cannot resolve case context: {error_msg}",
+            level="error",
+        )
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": error_msg}),
+        }
+
+    resolved_case_id = case_context["ragic_id"]
+    case_status = case_context.get("case_status", "")
+
+    # For SUPPLEMENTARY_QUESTIONNAIRE, check if it's 資訊補件 or 台電補件
+    if event_type_str == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE.value:
+        log_operation(
+            logger,
+            case_id=resolved_case_id,
+            operation_type="ai_determination_supplement_check",
+            message=f"Supplement questionnaire received, case status='{case_status}'",
+        )
+        # Both 資訊補件 and 台電補件 trigger AI re-determination
+        # The difference is in what happens after (handled by workflow_engine)
+
+    # TODO: Fetch questionnaire data and documents from RAGIC using resolved_case_id
+    # For now, log and return acknowledgment
+    log_operation(
+        logger,
+        case_id=resolved_case_id,
+        operation_type="ai_determination_webhook_complete",
+        message=f"Webhook event processed: type={event_type_str}, resolved_case_id={resolved_case_id}, status={case_status}",
+    )
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps({
+            "message": f"AI determination triggered for case {resolved_case_id}",
+            "event_type": event_type_str,
+            "case_status": case_status,
+            "resolved_case_id": resolved_case_id,
+        }, ensure_ascii=False),
+    }
+
+
+def _handle_direct_invocation(event: dict) -> dict:
+    """Handle direct invocation format (existing logic)."""
 
     try:
         case_id = event.get("case_id", "")

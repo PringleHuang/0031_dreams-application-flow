@@ -329,9 +329,14 @@ class CloudRagicClient:
         url = self._build_url(self.case_form_path, self.case_form_index, case_id)
         result = self._get(url)
 
-        # RAGIC returns the status in a known field
-        # The exact field ID will depend on the form configuration
-        status_value = result.get("status", result.get("案件狀態", ""))
+        # Read status using configurable field ID
+        try:
+            from dreams_workflow.shared.ragic_fields_config import get_field_id
+            status_field_id = get_field_id("case_management", "case_status", "1015456")
+        except Exception:
+            status_field_id = "1015456"
+
+        status_value = result.get(status_field_id, result.get("status", result.get("案件狀態", "")))
 
         # Try to match the status value to CaseStatus enum
         for status in CaseStatus:
@@ -341,6 +346,26 @@ class CloudRagicClient:
         raise ValueError(
             f"Unknown case status '{status_value}' for case {case_id}"
         )
+
+    @retry_ragic
+    def get_case_record(self, case_id: str) -> dict:
+        """Get the full case record from RAGIC case management form.
+
+        Used by downstream Lambdas to resolve case context when processing
+        questionnaire (work-survey/7) or supplement (work-survey/9) webhooks,
+        which don't include case status in their payload.
+
+        Args:
+            case_id: The case record ID (ragicId) in RAGIC.
+
+        Returns:
+            Full record dict with all field values.
+
+        Raises:
+            RagicCommunicationError: On API failure.
+        """
+        url = self._build_url(self.case_form_path, self.case_form_index, case_id)
+        return self._get(url)
 
     @retry_ragic
     def update_case_status(self, case_id: str, status: str) -> None:
