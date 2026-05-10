@@ -38,11 +38,11 @@
 </div>
 <div class="tabs">
     <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 實測通過</span></div>
-    <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-done">✓ 完成</span></div>
-    <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-partial">進行中</span></div>
-    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-todo">待開發</span></div>
-    <div class="tab" onclick="showTab(4)">四、新約-安裝結案 <span class="badge badge-todo">待開發</span></div>
-    <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-todo">待開發</span></div>
+    <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-partial">程式完成・待實測</span></div>
+    <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-partial">程式完成・待實測</span></div>
+    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-partial">程式完成・待整合</span></div>
+    <div class="tab" onclick="showTab(4)">四、新約-安裝結案 <span class="badge badge-partial">程式完成・待整合</span></div>
+    <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-partial">程式完成・待整合</span></div>
     <div class="tab" onclick="showTab(6)">六、狀態轉換總覽</div>
     <div class="tab" onclick="showTab(7)">七、元件互動時序</div>
 </div>
@@ -120,7 +120,7 @@ flowchart TD
 <!-- Tab 3 -->
 <div class="diagram-card" id="tab-3">
 <h2>新約流程 - 台電審核階段</h2>
-<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。</div>
+<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>狀態</b>：程式碼框架已完成，需整合 DREAMS API 和 SES 收信功能後實測。</div>
 <div class="mermaid">
 flowchart TD
     A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS 填單 API"]:::todo
@@ -150,7 +150,7 @@ flowchart TD
 <!-- Tab 4 -->
 <div class="diagram-card" id="tab-4">
 <h2>新約流程 - 安裝和結案</h2>
-<div class="desc">人工確認核准後通知客戶安裝資料收集器, 客服協助 DREAMS 自主檢查與上線, 最後同步至 SunVeillance 並結案。</div>
+<div class="desc">人工確認核准後通知客戶安裝資料收集器, 客服協助 DREAMS 自主檢查與上線, 最後同步至 SunVeillance 並結案。<br><b>狀態</b>：程式碼框架已完成，需整合 DREAMS API 和 SunVeillance API 後實測。</div>
 <div class="mermaid">
 flowchart TD
     A["案件狀態 - 安裝階段"]:::todo --> B["SES 發送核准通知 + 自主檢查清單"]:::todo
@@ -174,7 +174,7 @@ flowchart TD
 <!-- Tab 5 -->
 <div class="diagram-card" id="tab-5">
 <h2>續約簡化流程</h2>
-<div class="desc">續約案件不需 AI 判定和台電審核。客戶填電號後登入 SunVeillance 選擇續約案場, 完成後回寫雲端 RAGIC 即結案。</div>
+<div class="desc">續約案件不需 AI 判定和台電審核。客戶填電號後登入 SunVeillance 選擇續約案場, 完成後回寫雲端 RAGIC 即結案。<br><b>狀態</b>：程式碼框架已完成，需整合 SunVeillance API 後實測。</div>
 <div class="mermaid">
 flowchart TD
     A["案件狀態 - 續約處理"]:::todo --> B["提供 SunVeillance 登入資訊給客戶"]:::todo
@@ -379,10 +379,12 @@ sequenceDiagram
 </div>
 <div class="progress-legend" style="margin: 30px 40px 20px;">
     <b>開發進度圖例：</b>
-    <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成（程式碼+測試通過）
-    <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 待開發（規格已定義）
+    <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成＋實測通過
+    <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 程式完成・待實測/整合（需外部系統配合）
     <span style="display:inline-block; width:16px; height:16px; background:#fff; border:2px solid #9e9e9e; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 未標色（不涉及程式開發）
     &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-09
+    <br><br>
+    <b>待整合外部系統：</b> DREAMS 填單 API、SunVeillance API、台電郵件收發（SES Receipt Rule）
 </div>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'default' });
