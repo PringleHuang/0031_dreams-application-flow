@@ -37,7 +37,7 @@
     <p>Agent 直寫雲端 RAGIC, Webhook 統一入口, DREAMS 填單 API 整合</p>
 </div>
 <div class="tabs">
-    <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 完成</span></div>
+    <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 實測通過</span></div>
     <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-done">✓ 完成</span></div>
     <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-partial">進行中</span></div>
     <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-todo">待開發</span></div>
@@ -51,7 +51,7 @@
 <!-- Tab 0 -->
 <div class="diagram-card active" id="tab-0">
 <h2>階段零 - 每日出貨掃描</h2>
-<div class="desc">內網 Agent 每天定時掃描出貨管理表單, 找到符合條件訂單後寫入雲端 RAGIC（狀態=新開案件）, 由 Webhook 觸發後續流程。</div>
+<div class="desc">內網 Agent 每天定時掃描出貨管理表單, 找到符合條件訂單後寫入雲端 RAGIC（狀態=新開案件）, 由 Webhook 觸發後續流程。<br><b>✓ 2026-05-09 實測通過</b>：Webhook 接收 → 分類 NEW_CASE_CREATED → 發送問卷通知信（標題含 DREAMS_APPLY_ID、連結含 pfv 預填值）→ 回寫案件狀態為「待填問卷」。</div>
 <div class="mermaid">
 flowchart TD
     A["內網 Agent 每日定時觸發"]:::done --> B["掃描內網 RAGIC 出貨管理表單"]:::done
@@ -61,8 +61,8 @@ flowchart TD
     E --> F["雲端 RAGIC 觸發 Webhook"]:::done
     F --> G["API Gateway 接收"]:::done
     G --> H["webhook_handler 分類 NEW_CASE_CREATED\n（判斷依據：狀態欄位=新開案件）"]:::done
-    H --> I["workflow_engine 發送問卷通知信\n（含 pfv 預填出貨編號+DREAMS_APPLY_ID）"]:::done
-    I --> J["案件狀態 → 待填問卷"]:::done
+    H --> I["workflow_engine 發送問卷通知信\n（標題含 DREAMS_APPLY_ID、連結含 pfv 預填值）"]:::done
+    I --> J["回寫案件狀態 1015456 → 待填問卷"]:::done
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
 </div>
 </div>
@@ -70,20 +70,22 @@ flowchart TD
 <!-- Tab 1 -->
 <div class="diagram-card" id="tab-1">
 <h2>階段一 - 問卷續約/新約分流</h2>
-<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。</div>
+<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。<br><b>分類邏輯</b>：問卷 Webhook 來自 work-survey/7, payload 不含案件狀態。下游 Lambda 從 DREAMS_APPLY_ID（格式: {出貨單號}-{ragicId}）split 取最後一段作為案件 ragicId, 再查詢 business-process2/2/{ragicId} 取得案件類型。</div>
 <div class="mermaid">
 flowchart TD
     A["案件狀態 - 待填問卷"]:::done --> B["客戶開啟 RAGIC 問卷\n（DREAMS案場申請單 work-survey/7）"]:::done
     B --> C{"問卷第一題 - 是否續約"}:::done
     C -->|續約| D["客戶僅填寫電號"]:::done
-    D --> E["RAGIC Webhook 觸發"]:::done
-    E --> F["webhook 分類 - 續約問卷回覆"]:::done
-    F --> G["案件狀態 → 續約處理"]:::done
+    D --> E["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
+    E --> F["webhook_handler 分類\n→ 依 case_type 欄位判斷"]:::done
+    F --> F2["下游 Lambda 從 DREAMS_APPLY_ID\nsplit('-') 取 ragicId\n查詢案件管理表確認案件類型"]:::done
+    F2 --> G["案件狀態 → 續約處理"]:::done
     G --> H(["進入續約簡化流程 Tab五"])
     C -->|新約| I["客戶填寫完整資料 + 上傳5份佐證文件"]:::done
-    I --> J["RAGIC Webhook 觸發"]:::done
-    J --> K["webhook 分類 - 新約完整問卷回覆"]:::done
-    K --> L(["進入 AI 判定流程 Tab二"])
+    I --> J["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
+    J --> K["webhook_handler 分類\n→ NEW_CONTRACT_FULL_QUESTIONNAIRE"]:::done
+    K --> K2["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表"]:::done
+    K2 --> L(["進入 AI 判定流程 Tab二"])
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
 </div>
 </div>
@@ -91,10 +93,10 @@ flowchart TD
 <!-- Tab 2 -->
 <div class="diagram-card" id="tab-2">
 <h2>新約流程 - 資訊收集階段</h2>
-<div class="desc">新約案件 - 從 DREAMS_APPLY_ID 解析目標記錄 ID, AI 逐份比對佐證文件, 一次性將所有結果寫入 RAGIC, 公司聯絡人在 RAGIC 上確認並手動改狀態。</div>
+<div class="desc">新約案件 - 從 DREAMS_APPLY_ID 解析目標記錄 ID, AI 逐份比對佐證文件, 一次性將所有結果寫入 RAGIC, 公司聯絡人在 RAGIC 上確認並手動改狀態。<br><b>補件問卷分類</b>：補件問卷來自 work-survey/9, 下游 Lambda 從 DREAMS_APPLY_ID 解析 ragicId → 查詢案件管理表 1015456 欄位 → 區分「資訊補件」或「台電補件」。</div>
 <div class="mermaid">
 flowchart TD
-    A["新約案件 - Webhook 觸發"]:::done --> A2["從 DREAMS_APPLY_ID 解析 RAGIC record ID\n（split '-' 取第二段）"]:::done
+    A["新約案件 - Webhook 觸發"]:::done --> A2["從 DREAMS_APPLY_ID 解析 RAGIC record ID\n（split '-' 取最後一段）"]:::done
     A2 --> B["下載5份佐證文件附件"]:::done
     B --> C["逐份文件 AI 判定\n（Bedrock 審訖圖/細部協商/縣府函文/購售電契約/併聯審查意見書）"]:::done
     C --> D["組合完整寫入資料:\n直接欄位 + LLM判定值 + Pass/Fail + 狀態"]:::done
@@ -103,11 +105,13 @@ flowchart TD
     F --> G{"人工在 RAGIC 手動改狀態"}:::done
     G -->|改為 台電審核| H["RAGIC Webhook 觸發"]:::done
     H --> I(["進入台電審核 Tab三"])
-    G -->|改為 資訊補件| J["RAGIC Webhook 觸發"]:::done
-    J --> K["讀取問卷結果 Fail/Yes 欄位\n匯總補件參數代碼 A~Q"]:::todo
+    G -->|改為 資訊補件| J["RAGIC Webhook 觸發\n（path=/business-process2, sheet=2）"]:::done
+    J --> K["讀取問卷結果 Fail/Yes 欄位\n匯總補件參數代碼 A~N（含群組邏輯）"]:::todo
     K --> L["SES 發送補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]:::todo
-    L --> M["客戶填寫補件問卷\n（DREAMS案場-補單）"]:::todo
-    M -->|RAGIC Webhook| A
+    L --> M["客戶填寫補件問卷\n（DREAMS案場-補單 work-survey/9）"]:::todo
+    M --> M2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]:::todo
+    M2 --> M3["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表\n確認狀態=資訊補件"]:::todo
+    M3 -->|AI 重新判定| A2
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
 </div>
@@ -132,10 +136,12 @@ flowchart TD
     K --> L["公司聯絡人在 RAGIC 檢視台電審核結果"]
     L --> M{"人工在 RAGIC 手動改狀態"}
     M -->|改為 安裝階段| N(["進入安裝階段 Tab四"])
-    M -->|改為 台電補件| O["讀取台電審核結果 Fail/Yes 欄位\n匯總補件參數代碼 A~Q"]
+    M -->|改為 台電補件| O["讀取台電審核結果 Fail/Yes 欄位\n匯總補件參數代碼 A~N（含群組邏輯）"]
     O --> P["SES 發送台電補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]
-    P --> Q["客戶填寫台電補件問卷"]
-    Q -->|RAGIC Webhook| A
+    P --> Q["客戶填寫台電補件問卷\n（work-survey/9）"]
+    Q --> Q2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]
+    Q2 --> Q3["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表\n確認狀態=台電補件"]
+    Q3 -->|重新申請| A
 </div>
 </div>
 
@@ -372,7 +378,7 @@ sequenceDiagram
     <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成（程式碼+測試通過）
     <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 待開發（規格已定義）
     <span style="display:inline-block; width:16px; height:16px; background:#fff; border:2px solid #9e9e9e; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 未標色（不涉及程式開發）
-    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-07
+    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-09
 </div>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'default' });
