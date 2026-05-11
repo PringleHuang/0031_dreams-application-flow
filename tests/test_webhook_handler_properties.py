@@ -104,22 +104,49 @@ def _build_payload(
     is_new_record: bool | None = None,
     case_id: str = "TEST-001",
     extra: dict | None = None,
-) -> dict:
-    """Build a webhook payload dict from components."""
-    payload: dict = {"form_path": form_path}
-    if action:
-        payload["action"] = action
+) -> tuple[dict, dict]:
+    """Build ragic_meta and record_data from components for classify_webhook_event.
+
+    Returns:
+        (ragic_meta, record_data) tuple matching the new function signature.
+    """
+    # Determine path and sheetIndex from form_path string
+    path = ""
+    sheet_index = 0
+    if "business-process2" in form_path:
+        path = "/business-process2"
+        sheet_index = 2
+    elif "work-survey/7" in form_path:
+        path = "/work-survey"
+        sheet_index = 7
+    elif "work-survey/9" in form_path:
+        path = "/work-survey"
+        sheet_index = 9
+    elif "work-survey/8" in form_path:
+        path = "/work-survey"
+        sheet_index = 8
+    else:
+        path = form_path
+        sheet_index = 0
+
+    ragic_meta = {
+        "path": path,
+        "sheetIndex": sheet_index,
+        "eventType": action or "update",
+        "apname": "solarcs",
+    }
+
+    record_data: dict = {}
     if case_type:
-        payload["case_type"] = case_type
-    if is_supplement is not None:
-        payload["is_supplement"] = is_supplement
-    if is_new_record is not None:
-        payload["is_new_record"] = is_new_record
+        record_data["case_type"] = case_type
     if case_id:
-        payload["case_id"] = case_id
+        record_data["_ragicId"] = case_id
+    # For case management form, set status field for NEW_CASE_CREATED detection
+    if "business-process2" in form_path and is_new_record:
+        record_data["1015456"] = "新開案件"
     if extra:
-        payload.update(extra)
-    return payload
+        record_data.update(extra)
+    return ragic_meta, record_data
 
 
 # =============================================================================
@@ -151,7 +178,7 @@ class TestWebhookEventClassificationDeterminism:
         case_id: str,
     ):
         """Determinism: identical payloads always yield the same event type."""
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             action=action,
             case_type=case_type,
@@ -160,8 +187,8 @@ class TestWebhookEventClassificationDeterminism:
             case_id=case_id,
         )
 
-        result1 = classify_webhook_event(payload)
-        result2 = classify_webhook_event(payload)
+        result1 = classify_webhook_event(ragic_meta, record_data)
+        result2 = classify_webhook_event(ragic_meta, record_data)
 
         assert result1 == result2
 
@@ -184,7 +211,7 @@ class TestWebhookEventClassificationDeterminism:
         case_id: str,
     ):
         """Totality: every payload maps to exactly one valid WebhookEventType."""
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             action=action,
             case_type=case_type,
@@ -193,7 +220,7 @@ class TestWebhookEventClassificationDeterminism:
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
 
         assert isinstance(result, WebhookEventType)
         assert result in list(WebhookEventType)
@@ -222,19 +249,22 @@ class TestWebhookEventClassificationPriority:
         case_id: str,
         extra: dict,
     ):
-        """is_supplement=True always classifies as SUPPLEMENTARY_QUESTIONNAIRE,
-        regardless of form_path, action, case_type, or other fields."""
-        payload = _build_payload(
-            form_path=form_path,
-            action=action,
-            case_type=case_type,
-            is_supplement=True,
-            is_new_record=is_new_record,
-            case_id=case_id,
-            extra=extra,
-        )
+        """work-survey/9 path always classifies as SUPPLEMENTARY_QUESTIONNAIRE,
+        regardless of action, case_type, or other fields."""
+        # Override form_path to work-survey/9 (supplement form)
+        ragic_meta = {
+            "path": "/work-survey",
+            "sheetIndex": 9,
+            "eventType": action or "update",
+            "apname": "solarcs",
+        }
+        record_data: dict = {}
+        if case_type:
+            record_data["case_type"] = case_type
+        if extra:
+            record_data.update(extra)
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
 
     @settings(max_examples=100)
@@ -253,8 +283,9 @@ class TestWebhookEventClassificationPriority:
         is_new_record: bool | None,
         case_id: str,
     ):
-        """is_supplement=False should NOT classify as SUPPLEMENTARY_QUESTIONNAIRE."""
-        payload = _build_payload(
+        """Non work-survey/9 paths should NOT classify as SUPPLEMENTARY_QUESTIONNAIRE."""
+        # Ensure we're not using work-survey/9
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             action=action,
             case_type=case_type,
@@ -262,8 +293,10 @@ class TestWebhookEventClassificationPriority:
             is_new_record=is_new_record,
             case_id=case_id,
         )
+        # _build_payload with is_supplement=False won't set sheetIndex=9
+        assume(ragic_meta.get("sheetIndex") != 9)
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result != WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
 
 
@@ -284,14 +317,15 @@ class TestWebhookEventClassificationFormPath:
         action: str,
         case_id: str,
     ):
-        """Case management form + action=create → NEW_CASE_CREATED."""
-        payload = _build_payload(
+        """Case management form + status=新開案件 → NEW_CASE_CREATED."""
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             action=action,
+            is_new_record=True,  # This sets 1015456=新開案件
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.NEW_CASE_CREATED
 
     @settings(max_examples=100)
@@ -305,13 +339,13 @@ class TestWebhookEventClassificationFormPath:
         case_id: str,
     ):
         """Case management form + is_new_record=True → NEW_CASE_CREATED."""
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             is_new_record=True,
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.NEW_CASE_CREATED
 
     @settings(max_examples=100)
@@ -327,14 +361,14 @@ class TestWebhookEventClassificationFormPath:
         case_id: str,
     ):
         """Case management form + non-create action → CASE_STATUS_CHANGED."""
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             action=action,
             is_new_record=False,
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.CASE_STATUS_CHANGED
 
     @settings(max_examples=100)
@@ -348,13 +382,13 @@ class TestWebhookEventClassificationFormPath:
         case_id: str,
     ):
         """Questionnaire form + case_type=續約 → RENEWAL_QUESTIONNAIRE."""
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             case_type="續約",
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.RENEWAL_QUESTIONNAIRE
 
     @settings(max_examples=100)
@@ -372,13 +406,13 @@ class TestWebhookEventClassificationFormPath:
         """Questionnaire form + case_type != 續約 → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
         assume(case_type != "續約")
 
-        payload = _build_payload(
+        ragic_meta, record_data = _build_payload(
             form_path=form_path,
             case_type=case_type,
             case_id=case_id,
         )
 
-        result = classify_webhook_event(payload)
+        result = classify_webhook_event(ragic_meta, record_data)
         assert result == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
 
 
@@ -402,20 +436,20 @@ class TestWebhookEventClassificationExtraFieldsIrrelevant:
         extra: dict,
     ):
         """Extra fields (customer_name, email, etc.) do not change classification."""
-        payload_without_extra = _build_payload(
+        ragic_meta_without, record_data_without = _build_payload(
             form_path=form_path,
             action=action,
             case_id=case_id,
         )
-        payload_with_extra = _build_payload(
+        ragic_meta_with, record_data_with = _build_payload(
             form_path=form_path,
             action=action,
             case_id=case_id,
             extra=extra,
         )
 
-        result_without = classify_webhook_event(payload_without_extra)
-        result_with = classify_webhook_event(payload_with_extra)
+        result_without = classify_webhook_event(ragic_meta_without, record_data_without)
+        result_with = classify_webhook_event(ragic_meta_with, record_data_with)
 
         assert result_without == result_with
 
@@ -434,19 +468,19 @@ class TestWebhookEventClassificationExtraFieldsIrrelevant:
         extra: dict,
     ):
         """Extra fields do not change questionnaire classification."""
-        payload_without_extra = _build_payload(
+        ragic_meta_without, record_data_without = _build_payload(
             form_path=form_path,
             case_type=case_type,
             case_id=case_id,
         )
-        payload_with_extra = _build_payload(
+        ragic_meta_with, record_data_with = _build_payload(
             form_path=form_path,
             case_type=case_type,
             case_id=case_id,
             extra=extra,
         )
 
-        result_without = classify_webhook_event(payload_without_extra)
-        result_with = classify_webhook_event(payload_with_extra)
+        result_without = classify_webhook_event(ragic_meta_without, record_data_without)
+        result_with = classify_webhook_event(ragic_meta_with, record_data_with)
 
         assert result_without == result_with

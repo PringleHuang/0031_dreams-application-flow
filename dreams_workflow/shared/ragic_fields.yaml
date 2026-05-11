@@ -11,53 +11,53 @@
 # 案件管理表單 (business-process2, sheetIndex=2)
 # -----------------------------------------------------------------------------
 case_management:
-  case_status: "1015456"              # 案件狀態
-  dreams_apply_id: "1016557"          # DREAMS 申辦編號
-  customer_email: "1016558"           # 聯絡人郵件
-  shipment_order_id: "1015021"        # 出貨單號
-  electricity_number: "1015407"       # 電號
-  customer_name: "1015398"            # 客戶名稱
-  site_address: "1015399"             # 案場地址
-  site_name: "1014670"                # 案場名稱
-  capacity_kw: "1015409"              # 裝置容量(kW)
-  connection_method: "1015415"        # 併聯方式
-  selling_method: "1015414"           # 售電方式
+  case_status: "1015456"                  # 案件狀態
+  dreams_apply_id: "1016557"              # DREAMS 申辦編號
+  customer_email: "1016558"               # 聯絡人郵件
+  shipment_order_id: "1015021"            # 出貨單號
+  electricity_number: "1015407"           # 電號
+  customer_name: "1015398"                # 客戶名稱
+  site_address: "1015399"                 # 案場地址
+  site_name: "1014670"                    # 案場名稱
+  capacity_kw: "1015409"                  # 裝置容量(kW)
+  connection_method: "1015415"            # 併聯方式
+  selling_method: "1015414"               # 售電方式
 
 # -----------------------------------------------------------------------------
 # 問卷表單 (work-survey/7) — 欄位 ID 與案件管理表不同
 # -----------------------------------------------------------------------------
 questionnaire_form:
-  dreams_apply_id: "1016284"          # 問卷表單中的 DREAMS_APPLY_ID
-  shipment_order_id: "1015022"        # 問卷表單中的出貨單號
+  dreams_apply_id: "1016284"              # 問卷表單中的 DREAMS_APPLY_ID
+  shipment_order_id: "1015022"            # 問卷表單中的出貨單號
 
 # -----------------------------------------------------------------------------
 # AI 判定 - 文件附件欄位 (案件管理表單中的文件上傳欄位)
 # -----------------------------------------------------------------------------
 document_attachments:
-  审竣图: "1014650"                    # 審訖圖
-  county_approval: "1014651"          # 縣府同意備案函文
-  detailed_negotiation: "1014652"     # 細部協商
-  power_purchase_contract: "1014653"  # 購售電契約封面及內文第一頁
-  connection_review: "1014654"        # 併聯審查意見書
+  审竣图: "1014650"                       # 審訖圖
+  county_approval: "1014651"              # 縣府同意備案函文
+  detailed_negotiation: "1014652"         # 細部協商
+  power_purchase_contract: "1014653"      # 購售電契約封面及內文第一頁
+  connection_review: "1014654"            # 併聯審查意見書
 
 # -----------------------------------------------------------------------------
 # AI 判定 - 問卷表單欄位 (從文件中提取後對應到的問卷欄位)
 # -----------------------------------------------------------------------------
 questionnaire_fields:
-  site_address: "1014595"             # 案場詳細地址
-  capacity_kwp: "1014749"             # 裝置量(kW)
-  connection_method: "1014619"        # 併聯方式
-  connection_voltage_type: "1014621"  # 併聯點型式
-  connection_voltage_volt: "1014644"  # 併聯點電壓
-  demarcation_voltage_type: "1014622" # 責任分界點型式
-  demarcation_voltage_volt: "1014645" # 責任分界點電壓
-  site_type: "1014618"                # 案場類型
-  approval_number: "1014623"          # 縣府同意備案函文編號
-  selling_method: "1014620"           # 售電方式
-  power_purchase_number: "1014590"    # 電號(躉售)
+  site_address: "1014595"                 # 案場詳細地址
+  capacity_kwp: "1014749"                 # 裝置量(kW)
+  connection_method: "1014619"            # 併聯方式
+  connection_voltage_type: "1014621"      # 併聯點型式
+  connection_voltage_volt: "1014644"      # 併聯點電壓
+  demarcation_voltage_type: "1014622"     # 責任分界點型式
+  demarcation_voltage_volt: "1014645"     # 責任分界點電壓
+  site_type: "1014618"                    # 案場類型
+  approval_number: "1014623"              # 縣府同意備案函文編號
+  selling_method: "1014620"               # 售電方式
+  power_purchase_number: "1014590"        # 電號(躉售)
   inverter_subtable: "_subtable_1014629"  # 變流器子表格
-  inverter_model: "1014624"           # 變流器型號
-  inverter_quantity: "1014635"        # 變流器數量
+  inverter_model: "1014624"               # 變流器型號
+  inverter_quantity: "1014635"            # 變流器數量
 
 # -----------------------------------------------------------------------------
 # AI 判定 - 判定結果欄位
