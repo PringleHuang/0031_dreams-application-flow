@@ -539,24 +539,92 @@ def _handle_webhook_event(event: dict) -> dict:
         # Both 資訊補件 and 台電補件 trigger AI re-determination
         # The difference is in what happens after (handled by workflow_engine)
 
-    # TODO: Fetch questionnaire data and documents from RAGIC using resolved_case_id
-    # For now, log and return acknowledgment
-    log_operation(
-        logger,
-        case_id=resolved_case_id,
-        operation_type="ai_determination_webhook_complete",
-        message=f"Webhook event processed: type={event_type_str}, resolved_case_id={resolved_case_id}, status={case_status}",
-    )
+    # Fetch questionnaire data and documents from RAGIC
+    from dreams_workflow.shared.ragic_client import CloudRagicClient
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "message": f"AI determination triggered for case {resolved_case_id}",
-            "event_type": event_type_str,
-            "case_status": case_status,
-            "resolved_case_id": resolved_case_id,
-        }, ensure_ascii=False),
-    }
+    try:
+        ragic_client = CloudRagicClient()
+        try:
+            # Get questionnaire data (the case record contains form field values)
+            questionnaire_data = case_context.get("full_record", {})
+            if not questionnaire_data:
+                questionnaire_data = ragic_client.get_case_record(resolved_case_id)
+
+            # Download supporting documents (5 docs)
+            supporting_documents = ragic_client.get_supporting_documents(resolved_case_id)
+        finally:
+            ragic_client.close()
+
+        log_operation(
+            logger,
+            case_id=resolved_case_id,
+            operation_type="ai_determination_data_fetched",
+            message=f"Fetched questionnaire data and {len(supporting_documents)} documents",
+        )
+
+        if not supporting_documents:
+            log_operation(
+                logger,
+                case_id=resolved_case_id,
+                operation_type="ai_determination_no_docs",
+                message="No supporting documents found, skipping AI determination",
+                level="warning",
+            )
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "No supporting documents found",
+                    "resolved_case_id": resolved_case_id,
+                }, ensure_ascii=False),
+            }
+
+        # Perform AI comparison
+        llm_extracted_values: dict[str, dict[str, str]] = {}
+        report = compare_documents(
+            questionnaire_data=questionnaire_data,
+            supporting_documents=supporting_documents,
+            document_metadata=[],  # metadata not needed for webhook flow
+            case_id=resolved_case_id,
+            extracted_values_out=llm_extracted_values,
+        )
+
+        log_operation(
+            logger,
+            case_id=resolved_case_id,
+            operation_type="ai_determination_complete",
+            message=f"AI Determination completed: {report.overall_status}",
+        )
+
+        # Write results to RAGIC case management form
+        _write_result_and_update_status(
+            resolved_case_id, report, questionnaire_data, llm_extracted_values
+        )
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "message": f"AI determination completed for case {resolved_case_id}",
+                "overall_status": report.overall_status,
+                "event_type": event_type_str,
+                "resolved_case_id": resolved_case_id,
+            }, ensure_ascii=False),
+        }
+
+    except Exception as e:
+        log_operation(
+            logger,
+            case_id=resolved_case_id,
+            operation_type="ai_determination_error",
+            message=f"AI determination failed: {e}",
+            level="error",
+        )
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": str(e),
+                "resolved_case_id": resolved_case_id,
+            }, ensure_ascii=False),
+        }
 
 
 def _handle_direct_invocation(event: dict) -> dict:
