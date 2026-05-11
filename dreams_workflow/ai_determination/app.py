@@ -238,6 +238,35 @@ def compare_documents(
             for extract_field in att_cfg.get("extract_fields", []):
                 extract_key = extract_field.get("extract_key", "")
                 form_field_id = extract_field.get("form_field_id", "")
+
+                # Special handling for inverter_array
+                if extract_field.get("type") == "inverter_array":
+                    inv_data = extracted.get(extract_key, [])
+                    if isinstance(inv_data, list) and inv_data:
+                        # Format as {brand}|{model}|{quantity}, joined by ", "
+                        parts = []
+                        evidences = []
+                        for item in inv_data:
+                            if isinstance(item, dict):
+                                brand = str(item.get("brand", "")).strip()
+                                model = str(item.get("model", "")).strip()
+                                qty = str(item.get("quantity", "")).strip()
+                                ev = item.get("evidence", "")
+                                if model and qty:
+                                    if brand:
+                                        parts.append(f"{brand}|{model}|{qty}")
+                                    else:
+                                        parts.append(f"{model}|{qty}")
+                                    if ev:
+                                        evidences.append(ev)
+                        if parts:
+                            formatted = ", ".join(parts)
+                            if evidences:
+                                formatted += f"\n[依據] {'; '.join(evidences)}"
+                            # Use 1016553 as the key for inverter summary in LLM results
+                            doc_extracted_fields["1016553"] = formatted
+                    continue
+
                 if extract_key and form_field_id:
                     raw = extracted.get(extract_key, "")
                     # Format: "value\n[依據] evidence" for writing to RAGIC
