@@ -229,11 +229,13 @@ def resolve_case_context(payload: dict) -> dict:
 - **群組邏輯**：併聯方式、併聯點型式、併聯點電壓三項為同一群組（代碼 L），任一項 Fail 則三項一起補件；責任分界點型式、責任分界點電壓兩項為同一群組（代碼 M），任一項 Fail 則兩項一起補件
 
 **DREAMS_APPLY_ID 解析規則**：
-- Webhook payload 中包含 DREAMS_APPLY_ID 欄位（欄位 ID 從 `ragic_fields.yaml` 的 `case_management.dreams_apply_id` 讀取）
-- 格式為 `{出貨單號}-{ragicId}`，例如 `TEST0011-17`
+- Webhook payload 中包含 DREAMS_APPLY_ID 欄位，但**不同表單使用不同的欄位 ID**：
+  - 案件管理表（business-process2/2）：欄位 ID = `1016557`（定義於 `ragic_fields.yaml` 的 `case_management.dreams_apply_id`）
+  - 問卷表單（work-survey/7）：欄位 ID = `1016284`（定義於 `ragic_fields.yaml` 的 `questionnaire_form.dreams_apply_id`）
+- 格式為 `{出貨單號}-{ragicId}`，例如 `TEST0011-26`
 - 以 "-" split 取**最後一段**即為案件管理表單的 RAGIC record ID
 - 此 ID 用於 API URL：`https://ap13.ragic.com/solarcs/business-process2/2/{record_id}`
-- DREAMS案場申請單（work-survey/7）與 DREAMS案場-補單（work-survey/9）的 Webhook 都使用此機制定位目標案件記錄
+- `case_resolver.py` 的 `resolve_ragic_id_from_payload()` 會依序嘗試多個欄位 ID
 
 **問卷/補件 Webhook 的二次分類流程**：
 - `work-survey/7`（資訊問卷）：webhook_handler 先分類為 `NEW_CONTRACT_FULL_QUESTIONNAIRE`（預設），下游 Lambda 再從案件管理表查詢案件類型欄位，若為「續約」則改走續約流程
@@ -242,11 +244,13 @@ def resolve_case_context(payload: dict) -> dict:
   - 狀態 = 「台電補件」→ 走台電補件流程（重新申請台電）
 
 **AI 判定流程（問卷回覆觸發後）**：
-1. 收到 Webhook（含問卷資料，但缺附件），從 DREAMS_APPLY_ID 解析目標 record ID
-2. 從 RAGIC 下載 5 份佐證文件附件，此時程式擁有完整資料
-3. 逐份佐證文件進行 AI 判定
-4. 組合完整寫入資料：直接欄位值 + AI 判定值 + Pass/Fail 結果 + 狀態「待人工確認」
-5. 一次性將所有資料寫入案件管理表單（單次 RAGIC POST 至 `business-process2/2/{record_id}`）
+1. 收到 Webhook（來自 work-survey/7，payload 中的 ragicId 是問卷記錄 ID）
+2. 從 payload 的 DREAMS_APPLY_ID（欄位 `1016284`）解析案件管理表的 record ID
+3. 查詢案件管理表 `business-process2/2/{record_id}` 取得問卷資料（案件上下文）
+4. 從**問卷表單** `work-survey/7/{問卷ragicId}` 下載 5 份佐證文件附件（文件上傳在問卷表單中，不在案件管理表）
+5. 逐份佐證文件進行 AI 判定（Bedrock）
+6. 組合完整寫入資料：直接欄位值 + AI 判定值 + Pass/Fail 結果 + 狀態「待人工確認」
+7. 一次性將所有資料寫入案件管理表單（單次 RAGIC POST 至 `business-process2/2/{record_id}`）
 
 **介面**：
 ```python

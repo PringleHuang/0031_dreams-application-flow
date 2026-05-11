@@ -10,7 +10,6 @@ the payload does not contain case status. This module resolves the case context 
 from __future__ import annotations
 
 from dreams_workflow.shared.logger import get_logger, log_operation
-from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
 
 logger = get_logger(__name__)
 
@@ -18,8 +17,12 @@ logger = get_logger(__name__)
 def resolve_ragic_id_from_payload(payload: dict) -> str | None:
     """Extract the case ragicId from a questionnaire/supplement webhook payload.
 
-    The DREAMS_APPLY_ID field (configurable) has format: {shipment_order_id}-{ragicId}
+    The DREAMS_APPLY_ID field has format: {shipment_order_id}-{ragicId}
     e.g. "TEST0011-17" → ragicId = "17"
+
+    Checks multiple possible field IDs since different forms use different IDs:
+    - Case management form: 1016557
+    - Questionnaire form (work-survey/7): 1016284
 
     Args:
         payload: The webhook record_data (from data[0]).
@@ -27,9 +30,24 @@ def resolve_ragic_id_from_payload(payload: dict) -> str | None:
     Returns:
         The ragicId string, or None if not found.
     """
+    from dreams_workflow.shared.ragic_fields_config import (
+        get_case_management_fields,
+        get_questionnaire_form_fields,
+    )
+
     cm_fields = get_case_management_fields()
-    dreams_apply_id_field = cm_fields.get("dreams_apply_id", "1016557")
-    dreams_apply_id = payload.get(dreams_apply_id_field, payload.get("dreams_apply_id", ""))
+    q_form_fields = get_questionnaire_form_fields()
+
+    # Try multiple field IDs for DREAMS_APPLY_ID
+    dreams_apply_id = ""
+    for field_id in [
+        q_form_fields.get("dreams_apply_id", "1016284"),   # questionnaire form
+        cm_fields.get("dreams_apply_id", "1016557"),       # case management form
+        "dreams_apply_id",                                  # logical name fallback
+    ]:
+        dreams_apply_id = payload.get(field_id, "")
+        if dreams_apply_id:
+            break
 
     if not dreams_apply_id:
         return None
@@ -87,6 +105,7 @@ def resolve_case_context(payload: dict) -> dict:
 
     # Query case management form
     from dreams_workflow.shared.ragic_client import CloudRagicClient
+    from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
 
     cm_fields = get_case_management_fields()
     status_field_id = cm_fields.get("case_status", "1015456")

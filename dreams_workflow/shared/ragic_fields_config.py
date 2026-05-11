@@ -34,6 +34,19 @@ def get_case_management_fields() -> dict[str, str]:
     return _load_config().get("case_management", {})
 
 
+def get_questionnaire_form_fields() -> dict[str, str]:
+    """Get questionnaire form (work-survey/7) field ID mapping.
+
+    Note: The questionnaire form has different field IDs than the case
+    management form for the same logical fields (e.g. DREAMS_APPLY_ID).
+
+    Returns:
+        Dict mapping logical name → RAGIC field ID.
+        e.g. {"dreams_apply_id": "1016284", "shipment_order_id": "1015022"}
+    """
+    return _load_config().get("questionnaire_form", {})
+
+
 def get_document_attachment_fields() -> dict[str, str]:
     """Get document attachment field ID mapping.
 

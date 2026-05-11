@@ -225,30 +225,40 @@ class CloudRagicClient:
         return result
 
     @retry_ragic
-    def get_supporting_documents(self, record_id: str) -> list[tuple[str, bytes]]:
+    def get_supporting_documents(
+        self,
+        record_id: str,
+        form_path: str | None = None,
+        form_index: int | None = None,
+    ) -> list[tuple[str, bytes]]:
         """Download all supporting document attachments for a record.
 
-        Reads attachment field values from the questionnaire form and downloads
+        Reads attachment field values from the specified form and downloads
         each file. The attachment field value format is '{fileKey}@{fileName}'.
 
         Args:
-            record_id: RAGIC record ID in the questionnaire form.
+            record_id: RAGIC record ID.
+            form_path: Form path (default: questionnaire_form_path = "work-survey").
+            form_index: Form index (default: questionnaire_form_index = 7).
 
         Returns:
             List of (filename, file_bytes) tuples for each successfully
             downloaded attachment.
         """
+        if form_path is None:
+            form_path = self.questionnaire_form_path
+        if form_index is None:
+            form_index = self.questionnaire_form_index
+
         log_operation(
             logger,
             case_id=record_id,
             operation_type="ragic_get_documents",
-            message=f"Downloading supporting documents for record {record_id}",
+            message=f"Downloading supporting documents for record {record_id} from {form_path}/{form_index}",
         )
 
-        # First get the questionnaire data to find attachment fields
-        url = self._build_url(
-            self.questionnaire_form_path, self.questionnaire_form_index, record_id
-        )
+        # Get the record data to find attachment fields
+        url = self._build_url(form_path, form_index, record_id)
         record_data = self._get(url)
 
         # Known attachment field IDs (from ragic_fields.yaml)

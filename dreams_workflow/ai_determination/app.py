@@ -550,8 +550,13 @@ def _handle_webhook_event(event: dict) -> dict:
             if not questionnaire_data:
                 questionnaire_data = ragic_client.get_case_record(resolved_case_id)
 
-            # Download supporting documents (5 docs)
-            supporting_documents = ragic_client.get_supporting_documents(resolved_case_id)
+            # Download supporting documents from the QUESTIONNAIRE form (work-survey/7)
+            # NOT from the case management form — documents are uploaded to the questionnaire
+            # The webhook payload case_id is the questionnaire record ID
+            questionnaire_record_id = case_id  # This is the ragicId from work-survey/7
+            supporting_documents = ragic_client.get_supporting_documents(
+                questionnaire_record_id, form_path="work-survey", form_index=7
+            )
         finally:
             ragic_client.close()
 
