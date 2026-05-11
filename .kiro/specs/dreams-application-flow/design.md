@@ -256,6 +256,37 @@ def resolve_case_context(payload: dict) -> dict:
 
 ⚠️ **重要設計決策**：RAGIC Webhook payload 的 `data[0]` 已包含觸發記錄的所有欄位值（含附件欄位），因此 AI 判定流程**不需要額外呼叫 RAGIC API 查詢問卷記錄**，直接從 payload 取值即可。這與參考實作（refer/0031_CreateNewDreams）的做法一致。
 
+**Pass/Fail 判定邏輯（Per-Field 粒度）**：
+- 判定以**欄位（field）為單位**，非以文件為單位
+- LLM 從文件中提取值且與問卷表單值**匹配** → 該欄位 **Pass**
+- LLM 從文件中提取值但與問卷表單值**不匹配** → 該欄位 **Fail**（此 Fail 具有覆蓋性，即使其他文件對同欄位判定為 Pass，最終仍為 Fail）
+- 若**所有文件**對某欄位皆回傳 null / not found → 該欄位 **Fail**
+- 單一文件對某欄位回傳 null / not found → **忽略**（不計為 Pass 也不計為 Fail）
+- 所有結果欄位**一律寫入**（空字串清除舊值），確保每次判定結果完整覆蓋
+
+**逆變器（Inverter）格式規則**：
+- 輸出格式：`{brand}|{model}|{quantity}`，多組以 `", "` 連接
+- 範例：`HUAWEI|SUN2000-100KTL-M1|8, HUAWEI|SUN2000-40KTL-M3|2`
+- LLM 從佐證文件中提取逆變器的品牌（brand）、型號（model）、數量（quantity）
+- 比對對象為問卷子表格 `_subtable_1014629` 中的逆變器資料
+
+**LLM 結果欄位格式（含依據文字）**：
+- 結果欄位（如 `1016519`、`1016520` 等）包含提取值與出處依據
+- 格式：`"extracted_value\n[依據] 第X頁：原文內容"`
+- 此格式讓人工審核時可直接看到 LLM 判定的原文出處
+
+**Bedrock 配置**：
+- Model：`jp.anthropic.claude-sonnet-4-6`
+- Max tokens：`8192`
+- Timeout：`900` 秒
+
+⚠️ **Prompt 規則同步**：AI 判定使用的 prompt 包含從參考專案（`refer/0031_CreateNewDreams`）同步的完整規則，涵蓋：
+- site_type（場址類型）判定規則
+- selling_method（售電方式）判定規則
+- connection/demarcation point（併接點/責任分界點）分離規則
+- 格式正規化指引（地址、數值、日期等）
+- 回應範例（response examples）
+
 **介面**：
 ```python
 @dataclass
