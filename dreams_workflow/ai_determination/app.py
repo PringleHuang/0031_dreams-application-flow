@@ -235,9 +235,18 @@ def compare_documents(
                 extract_key = extract_field.get("extract_key", "")
                 form_field_id = extract_field.get("form_field_id", "")
                 if extract_key and form_field_id:
-                    value = extracted.get(extract_key, "")
-                    if value and not isinstance(value, (list, dict)):
-                        doc_extracted_fields[form_field_id] = str(value)
+                    raw = extracted.get(extract_key, "")
+                    # Format: "value\n[依據] evidence" for writing to RAGIC
+                    if isinstance(raw, dict):
+                        value = raw.get("value", "")
+                        evidence = raw.get("evidence", "")
+                        if value:
+                            formatted = str(value)
+                            if evidence:
+                                formatted += f"\n[依據] {evidence}"
+                            doc_extracted_fields[form_field_id] = formatted
+                    elif raw and not isinstance(raw, (list, dict)):
+                        doc_extracted_fields[form_field_id] = str(raw)
             if doc_extracted_fields:
                 extracted_values_out[doc_name] = doc_extracted_fields
 
@@ -543,20 +552,31 @@ def _handle_webhook_event(event: dict) -> dict:
     from dreams_workflow.shared.ragic_client import CloudRagicClient
 
     try:
+        # The webhook payload already contains all questionnaire field values
+        # including attachment field values (format: '{fileKey}@{fileName}')
+        # We use the payload directly as questionnaire_data (like the reference project)
+        questionnaire_data = payload
+
+        # Download supporting documents directly from payload attachment fields
+        # (same approach as refer/0031_CreateNewDreams/processor/app.py)
         ragic_client = CloudRagicClient()
         try:
-            # Get questionnaire data (the case record contains form field values)
-            questionnaire_data = case_context.get("full_record", {})
-            if not questionnaire_data:
-                questionnaire_data = ragic_client.get_case_record(resolved_case_id)
+            from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
 
-            # Download supporting documents from the QUESTIONNAIRE form (work-survey/7)
-            # NOT from the case management form — documents are uploaded to the questionnaire
-            # The webhook payload case_id is the questionnaire record ID
-            questionnaire_record_id = case_id  # This is the ragicId from work-survey/7
-            supporting_documents = ragic_client.get_supporting_documents(
-                questionnaire_record_id, form_path="work-survey", form_index=7
-            )
+            doc_fields = get_document_attachment_fields()
+            attachment_field_ids = list(doc_fields.values())
+
+            supporting_documents: list[tuple[str, bytes]] = []
+            document_metadata: list[dict] = []
+            for field_id in attachment_field_ids:
+                file_value = payload.get(field_id, "")
+                if not file_value or "@" not in str(file_value):
+                    continue
+
+                file_bytes, file_name = ragic_client._download_attachment(str(file_value))
+                if file_bytes is not None:
+                    supporting_documents.append((file_name, file_bytes))
+                    document_metadata.append({"field_id": field_id})
         finally:
             ragic_client.close()
 
@@ -588,7 +608,7 @@ def _handle_webhook_event(event: dict) -> dict:
         report = compare_documents(
             questionnaire_data=questionnaire_data,
             supporting_documents=supporting_documents,
-            document_metadata=[],  # metadata not needed for webhook flow
+            document_metadata=document_metadata,
             case_id=resolved_case_id,
             extracted_values_out=llm_extracted_values,
         )

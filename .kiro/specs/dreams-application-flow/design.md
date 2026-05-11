@@ -244,13 +244,17 @@ def resolve_case_context(payload: dict) -> dict:
   - 狀態 = 「台電補件」→ 走台電補件流程（重新申請台電）
 
 **AI 判定流程（問卷回覆觸發後）**：
-1. 收到 Webhook（來自 work-survey/7，payload 中的 ragicId 是問卷記錄 ID）
+1. 收到 Webhook（來自 work-survey/7，payload 已包含所有問卷欄位值與附件欄位值）
 2. 從 payload 的 DREAMS_APPLY_ID（欄位 `1016284`）解析案件管理表的 record ID
-3. 查詢案件管理表 `business-process2/2/{record_id}` 取得問卷資料（案件上下文）
-4. 從**問卷表單** `work-survey/7/{問卷ragicId}` 下載 5 份佐證文件附件（文件上傳在問卷表單中，不在案件管理表）
+3. **直接使用 webhook payload 作為問卷資料**（不需再呼叫 RAGIC API 查詢問卷記錄）
+4. **直接從 payload 的附件欄位值下載文件**（格式 `{fileKey}@{fileName}`，使用 RAGIC file download API）
+   - 附件欄位 ID：`1014650`（審訖圖）、`1014651`（縣府同意備案函文）、`1014652`（細部協商）、`1014653`（購售電契約）、`1014654`（併聯審查意見書）
+   - 下載 URL：`{file_download_url}?a={account_name}&f={url_encoded_file_value}`
 5. 逐份佐證文件進行 AI 判定（Bedrock）
 6. 組合完整寫入資料：直接欄位值 + AI 判定值 + Pass/Fail 結果 + 狀態「待人工確認」
 7. 一次性將所有資料寫入案件管理表單（單次 RAGIC POST 至 `business-process2/2/{record_id}`）
+
+⚠️ **重要設計決策**：RAGIC Webhook payload 的 `data[0]` 已包含觸發記錄的所有欄位值（含附件欄位），因此 AI 判定流程**不需要額外呼叫 RAGIC API 查詢問卷記錄**，直接從 payload 取值即可。這與參考實作（refer/0031_CreateNewDreams）的做法一致。
 
 **介面**：
 ```python

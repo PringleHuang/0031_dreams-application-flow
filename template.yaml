@@ -12,7 +12,7 @@ Globals:
     Environment:
       Variables:
         RAGIC_BASE_URL: https://ap13.ragic.com
-        BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+        BEDROCK_MODEL_ID: jp.anthropic.claude-sonnet-4-6
         LOG_LEVEL: INFO
 
 Parameters:
@@ -166,11 +166,12 @@ Resources:
       CodeUri: .
       Handler: dreams_workflow.ai_determination.app.lambda_handler
       MemorySize: 512
-      Timeout: 120
+      Timeout: 900
       Environment:
         Variables:
           RAGIC_API_KEY: !Ref RagicApiKey
-          BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+          BEDROCK_MODEL_ID: jp.anthropic.claude-sonnet-4-6
+          BEDROCK_REGION: ap-northeast-1
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
       Policies:
         - Version: '2012-10-17'
@@ -178,8 +179,7 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
-                - bedrock:InvokeModelWithResponseStream
-              Resource: !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+              Resource: "*"
         - S3ReadPolicy:
             BucketName: !Ref EmailStorageBucket
         - CloudWatchLogsFullAccess

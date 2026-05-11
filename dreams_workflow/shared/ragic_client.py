@@ -261,11 +261,25 @@ class CloudRagicClient:
         url = self._build_url(form_path, form_index, record_id)
         record_data = self._get(url)
 
+        # Debug: log record_data keys to understand structure
+        logger.warning(
+            f"[DOC_DEBUG] record_data type={type(record_data).__name__}, keys={list(record_data.keys())[:20]}",
+            extra={"case_id": record_id, "operation_type": "ragic_doc_record_keys"},
+        )
+
         # Known attachment field IDs (from ragic_fields.yaml)
         from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
 
         doc_fields = get_document_attachment_fields()
         attachment_field_ids = list(doc_fields.values())
+
+        # Debug: log what we got from RAGIC for attachment fields
+        for field_id in attachment_field_ids:
+            val = record_data.get(field_id, "")
+            logger.warning(
+                f"[DOC_DEBUG] field_id={field_id} value={repr(str(val)[:100])}",
+                extra={"case_id": record_id, "operation_type": "ragic_doc_field_check"},
+            )
 
         documents: list[tuple[str, bytes]] = []
         for field_id in attachment_field_ids:

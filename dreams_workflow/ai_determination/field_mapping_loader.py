@@ -128,7 +128,11 @@ def build_complete_write_payload(
     # 2. LLM extracted values → case form fields
     llm_map = get_llm_result_mapping()
     for doc_name, field_map in llm_map.items():
+        if not field_map:
+            continue
         doc_extracted = llm_extracted_values.get(doc_name, {})
+        if not doc_extracted:
+            continue
         for q_field_id, case_field_id in field_map.items():
             value = doc_extracted.get(q_field_id, "")
             if value:
