@@ -58,8 +58,8 @@ def build_extract_prompt(attachment_cfg: dict, allowed_values: dict) -> str:
     for field in attachment_cfg["extract_fields"]:
         if field.get("type") == "inverter_array":
             desc = f'- {field["extract_key"]}: {field["description"]}'
-            desc += '\n  回傳陣列格式：[{"model": "型號", "quantity": "數量", "evidence": "依據"}, ...]'
-            desc += "\n  列出文件中所有變流器（逆變器），每組必須同時包含型號和數量"
+            desc += '\n  回傳陣列格式：[{"brand": "廠牌", "model": "型號", "quantity": "數量", "evidence": "依據"}, ...]'
+            desc += "\n  列出文件中所有變流器（逆變器），每組必須同時包含廠牌、型號和數量"
             desc += "\n  數量判定方式（依優先順序）："
             desc += "\n    1. 文件中直接寫明數量（如「x8台」「共8台」）"
             desc += "\n    2. 從 INV 編號推算（如 INV#1~INV#8 表示 8 台，INV#9~INV#10 表示 2 台）"
@@ -67,6 +67,7 @@ def build_extract_prompt(attachment_cfg: dict, allowed_values: dict) -> str:
             desc += "\n  若以上方式都無法確定數量，該組不要輸出（不可假設數量為1）"
             desc += "\n  數量只回傳數字，去除小數尾零"
             desc += "\n  注意：變流器規格表中可能列出多種型號，每種型號的數量可能不同"
+            desc += "\n  廠牌常見值：HUAWEI, PrimeVOLT, SolarEdge, DELTA, Sungrow 等"
             if "inverter_models" in allowed_values:
                 models = allowed_values["inverter_models"]
                 desc += f"\n  型號請從以下清單中選擇最接近的（共{len(models)}個）："
@@ -286,6 +287,21 @@ def invoke_bedrock_extract(
         )
         result = json.loads(response["body"].read())
         text = result["content"][0]["text"]
+
+        # Log response for debugging
+        logger.info(
+            "Bedrock response (first 500 chars): %s",
+            text[:500],
+            extra={"operation_type": "bedrock_response"},
+        )
+
+        # Check if response was truncated (stop_reason)
+        stop_reason = result.get("stop_reason", "")
+        if stop_reason == "max_tokens":
+            logger.warning(
+                "Bedrock response was TRUNCATED (max_tokens reached)",
+                extra={"operation_type": "bedrock_truncated"},
+            )
 
         # Strip markdown code fences if present
         text = text.strip()

@@ -258,14 +258,16 @@ def compare_inverters(extracted_list: Any, record: dict, field_cfg: dict) -> lis
     # Extract form inverters from subtable
     form_inverters: list[dict[str, str]] = []
     sub_data = record.get(subtable_key, {})
+    brand_fid = field_cfg.get("brand_field_id", "1014628")
     if sub_data and isinstance(sub_data, dict):
         for row in sub_data.values():
             if isinstance(row, dict):
                 m = row.get(model_fid, "")
                 q = row.get(qty_fid, "")
+                b = row.get(brand_fid, "")
                 if m or q:
                     form_inverters.append(
-                        {"model": str(m).strip(), "quantity": str(q).strip()}
+                        {"brand": str(b).strip(), "model": str(m).strip(), "quantity": str(q).strip()}
                     )
 
     # Extract LLM inverters
@@ -275,20 +277,28 @@ def compare_inverters(extracted_list: Any, record: dict, field_cfg: dict) -> lis
             if isinstance(item, dict):
                 m = item.get("model") or ""
                 q = item.get("quantity") or ""
+                b = item.get("brand") or ""
                 ev = item.get("evidence", "")
                 if str(m).strip() and str(q).strip():
                     llm_inverters.append({
+                        "brand": str(b).strip(),
                         "model": str(m).strip(),
                         "quantity": str(q).strip(),
                         "evidence": ev,
                     })
 
     def fmt(inv_list: list[dict[str, str]]) -> str:
-        return (
-            ", ".join(f"{i['model']}x{i['quantity']}" for i in inv_list)
-            if inv_list
-            else "(無)"
-        )
+        """Format as {brand}|{model}|{quantity}, joined by ', '"""
+        parts = []
+        for i in inv_list:
+            brand = i.get("brand", "")
+            model = i.get("model", "")
+            qty = i.get("quantity", "")
+            if brand:
+                parts.append(f"{brand}|{model}|{qty}")
+            else:
+                parts.append(f"{model}|{qty}")
+        return ", ".join(parts) if parts else "(無)"
 
     form_str = fmt(form_inverters)
     ext_str = fmt([{"model": i["model"], "quantity": i["quantity"]} for i in llm_inverters])

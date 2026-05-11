@@ -14,7 +14,7 @@ from typing import Any
 # Default Bedrock configuration
 DEFAULT_BEDROCK_MODEL_ID = "jp.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "ap-northeast-1"
-DEFAULT_BEDROCK_MAX_TOKENS = 4096
+DEFAULT_BEDROCK_MAX_TOKENS = 8192
 
 # Allowed values for field normalization and comparison
 ALLOWED_VALUES: dict[str, Any] = {
