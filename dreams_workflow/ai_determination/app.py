@@ -96,6 +96,7 @@ def compare_documents(
     case_id: str = "",
     bedrock_client: Any | None = None,
     extracted_values_out: dict[str, dict[str, str]] | None = None,
+    field_comparisons_out: dict[str, list[dict]] | None = None,
 ) -> ComparisonReport:
     """Compare supporting documents against questionnaire form data.
 
@@ -118,6 +119,9 @@ def compare_documents(
         extracted_values_out: Optional dict to populate with LLM-extracted values
             per document. Format: {document_name: {questionnaire_field_id: extracted_value}}.
             If provided, will be populated during comparison.
+        field_comparisons_out: Optional dict to populate with per-field comparison
+            results per document. Format: {document_name: [comparison_dict, ...]}.
+            Each comparison_dict has: form_field_id, match, extracted, form_value, note.
 
     Returns:
         ComparisonReport with exactly 5 results and overall status.
@@ -259,6 +263,10 @@ def compare_documents(
         comparisons = _compare_document_fields(
             extracted, questionnaire_data, form_normalized, att_cfg
         )
+
+        # Capture per-field comparison results if output dict is provided
+        if field_comparisons_out is not None:
+            field_comparisons_out[doc_name] = comparisons
 
         # Determine document pass/fail
         all_match = all(c.get("match", False) for c in comparisons)
@@ -453,6 +461,7 @@ def _compare_document_fields(
         comp = compare_values(ext_value, form_value, ext_key)
         comp.update({
             "extract_key": ext_key,
+            "form_field_id": field_cfg.get("form_field_id", ""),
             "form_field_name": field_cfg["form_field_name"],
             "evidence": evidence,
         })
@@ -605,12 +614,14 @@ def _handle_webhook_event(event: dict) -> dict:
 
         # Perform AI comparison
         llm_extracted_values: dict[str, dict[str, str]] = {}
+        field_comparisons: dict[str, list[dict]] = {}
         report = compare_documents(
             questionnaire_data=questionnaire_data,
             supporting_documents=supporting_documents,
             document_metadata=document_metadata,
             case_id=resolved_case_id,
             extracted_values_out=llm_extracted_values,
+            field_comparisons_out=field_comparisons,
         )
 
         log_operation(
@@ -622,7 +633,8 @@ def _handle_webhook_event(event: dict) -> dict:
 
         # Write results to RAGIC case management form
         _write_result_and_update_status(
-            resolved_case_id, report, questionnaire_data, llm_extracted_values
+            resolved_case_id, report, questionnaire_data, llm_extracted_values,
+            field_comparisons=field_comparisons,
         )
 
         return {
@@ -739,13 +751,14 @@ def _write_result_and_update_status(
     report: "ComparisonReport",
     questionnaire_data: dict,
     llm_extracted_values: dict[str, dict[str, str]],
+    field_comparisons: dict[str, list[dict]] | None = None,
 ) -> None:
     """Write all determination results to RAGIC case management form in a single POST.
 
     After AI determination completes, builds a complete payload containing:
     1. Direct mapping fields (questionnaire values)
     2. LLM extracted values (AI-determined values per document)
-    3. Pass/Fail results (per-field determination)
+    3. Pass/Fail results (per-field determination based on individual field comparisons)
     4. Status update to "待人工確認"
 
     All data is written in a single RAGIC POST call.
@@ -756,6 +769,8 @@ def _write_result_and_update_status(
         questionnaire_data: Original questionnaire form data (field_id → value).
         llm_extracted_values: AI-extracted values per document
             (document_name → {questionnaire_field_id → extracted_value}).
+        field_comparisons: Per-field comparison results per document
+            (document_name → [comparison_dict, ...]).
 
     Requirements: 2.7, 2.8
     """
@@ -767,7 +782,7 @@ def _write_result_and_update_status(
     from dreams_workflow.shared.ragic_client import CloudRagicClient
 
     # Build per-field Pass/Fail results from the ComparisonReport
-    field_results = _build_field_results(report)
+    field_results = _build_field_results(report, field_comparisons)
 
     # Build the complete payload for a single RAGIC POST
     payload = build_complete_write_payload(
@@ -809,14 +824,21 @@ def _write_result_and_update_status(
         ragic_client.close()
 
 
-def _build_field_results(report: "ComparisonReport") -> dict[str, str]:
-    """Build per-field Pass/Fail results from the ComparisonReport.
+def _build_field_results(
+    report: "ComparisonReport",
+    field_comparisons: dict[str, list[dict]] | None = None,
+) -> dict[str, str]:
+    """Build per-field Pass/Fail results from individual field comparisons.
 
-    Maps each document's comparison result to the individual questionnaire
-    fields that were verified by that document.
+    Uses per-field comparison data when available (granular per-field Pass/Fail).
+    Falls back to per-document status if field_comparisons is not provided.
+
+    A field is "Pass" if ALL documents that verify it agree it matches.
+    A field is "Fail" if ANY document that verifies it finds a mismatch.
 
     Args:
         report: The ComparisonReport containing per-document results.
+        field_comparisons: Per-field comparison results per document.
 
     Returns:
         Dict of questionnaire_field_id → "Pass" or "Fail".
@@ -825,28 +847,47 @@ def _build_field_results(report: "ComparisonReport") -> dict[str, str]:
 
     field_results: dict[str, str] = {}
 
-    # Map document results to individual field results
-    for doc_result in report.results:
-        # Find the matching attachment config
-        att_cfg = None
-        for cfg in ATTACHMENTS_CONFIG:
-            if cfg["document_name"] == doc_result.document_name:
-                att_cfg = cfg
-                break
+    if field_comparisons:
+        # Use granular per-field comparison results
+        for doc_name, comparisons in field_comparisons.items():
+            for comp in comparisons:
+                form_field_id = comp.get("form_field_id", "")
+                if not form_field_id:
+                    # Try to get from extract_key → form_field_id mapping
+                    extract_key = comp.get("extract_key", "")
+                    # Find form_field_id from ATTACHMENTS_CONFIG
+                    for cfg in ATTACHMENTS_CONFIG:
+                        if cfg["document_name"] == doc_name:
+                            for ef in cfg.get("extract_fields", []):
+                                if ef.get("extract_key") == extract_key:
+                                    form_field_id = ef.get("form_field_id", "")
+                                    break
+                            break
+                if not form_field_id:
+                    continue
 
-        if att_cfg is None:
-            continue
-
-        # For each field this document verifies, set Pass/Fail
-        for extract_field in att_cfg.get("extract_fields", []):
-            form_field_id = extract_field.get("form_field_id", "")
-            if form_field_id:
-                # If document passed, all its fields pass
-                # If document failed, all its fields fail
-                # (More granular per-field results would require
-                #  access to individual field comparison data)
-                field_results[form_field_id] = (
-                    "Pass" if doc_result.status == "pass" else "Fail"
-                )
+                is_match = comp.get("match", False)
+                if not is_match:
+                    # Any fail → field is Fail
+                    field_results[form_field_id] = "Fail"
+                elif form_field_id not in field_results:
+                    # First pass → set to Pass (can be overridden by later Fail)
+                    field_results[form_field_id] = "Pass"
+    else:
+        # Fallback: use per-document status (old behavior)
+        for doc_result in report.results:
+            att_cfg = None
+            for cfg in ATTACHMENTS_CONFIG:
+                if cfg["document_name"] == doc_result.document_name:
+                    att_cfg = cfg
+                    break
+            if att_cfg is None:
+                continue
+            for extract_field in att_cfg.get("extract_fields", []):
+                form_field_id = extract_field.get("form_field_id", "")
+                if form_field_id:
+                    field_results[form_field_id] = (
+                        "Pass" if doc_result.status == "pass" else "Fail"
+                    )
 
     return field_results
