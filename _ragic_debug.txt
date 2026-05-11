@@ -1,8 +1,0 @@
-﻿aws : 
-位於 線路:1 字元:1
-+ aws logs filter-log-events --log-group-name "/aws/lambda/dreams-workf ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-aws: [ERROR]: 'cp950' codec can't encode character '\xd8' in position 1536: illegal multibyte sequence

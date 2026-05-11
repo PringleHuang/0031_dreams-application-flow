@@ -854,10 +854,14 @@ def _build_field_results(
     field_results: dict[str, str] = {}
 
     if field_comparisons:
+        # Track which fields were checked by any document
+        fields_checked: set[str] = set()
+
         # Use granular per-field comparison results
-        # Logic: A field is Pass if ANY document finds a match.
-        # A field is Fail only if a document extracts a value AND it doesn't match.
-        # "Not found" (extracted=null) is ignored — it doesn't count as Fail.
+        # Logic:
+        # - If extracted value matches form → Pass
+        # - If extracted value doesn't match → Fail (overrides Pass)
+        # - If all documents return null/not found → Fail (no evidence found)
         for doc_name, comparisons in field_comparisons.items():
             for comp in comparisons:
                 form_field_id = comp.get("form_field_id", "")
@@ -875,6 +879,8 @@ def _build_field_results(
                 if not form_field_id:
                     continue
 
+                fields_checked.add(form_field_id)
+
                 is_match = comp.get("match", False)
                 extracted = comp.get("extracted")
                 note = comp.get("note", "")
@@ -890,6 +896,11 @@ def _build_field_results(
                 else:
                     # Mismatch found → Fail (overrides Pass)
                     field_results[form_field_id] = "Fail"
+
+        # Fields that were checked but never got a result → Fail (no evidence found)
+        for fid in fields_checked:
+            if fid not in field_results:
+                field_results[fid] = "Fail"
     else:
         # Fallback: use per-document status (old behavior)
         for doc_result in report.results:
