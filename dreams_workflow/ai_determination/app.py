@@ -879,8 +879,8 @@ def _build_field_results(
                 extracted = comp.get("extracted")
                 note = comp.get("note", "")
 
-                # Skip if LLM didn't find the field (null/not found)
-                if extracted is None or "未找到" in note:
+                # Skip if LLM didn't find the field (null/not found/empty)
+                if extracted is None or extracted == "" or "未找到" in note or "皆為空" in note or "表單欄位為空" in note:
                     continue
 
                 if is_match:
