@@ -125,7 +125,7 @@ def _build_attachments_config() -> list[dict[str, Any]]:
                 },
                 {
                     "extract_key": "capacity_kwp",
-                    "description": "案場裝置容量，單位為 kWp，只回傳數字",
+                    "description": "案場裝置容量，單位為 kWp（太陽能板的總裝置容量，不是變流器或逆變器的容量），只回傳數字",
                     "form_field_id": q_fields.get("capacity_kwp", "1014749"),
                     "form_field_name": "裝置量(kW)",
                 },
@@ -191,7 +191,7 @@ def _build_attachments_config() -> list[dict[str, Any]]:
                 },
                 {
                     "extract_key": "approval_number",
-                    "description": "縣府同意備案函文編號",
+                    "description": "縣府同意備案函文編號（格式為：3碼英文-3碼數字PV4碼流水號，例如 KHH-112PV0748、TYU-114PV0107。注意不要將發文字號誤認為備案編號）",
                     "form_field_id": q_fields.get("approval_number", "1014623"),
                     "form_field_name": "縣府同意備案函文編號",
                 },
