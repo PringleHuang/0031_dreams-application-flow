@@ -424,9 +424,11 @@ def _compare_document_fields(
 
         # Handle inverter array comparison
         if field_cfg.get("type") == "inverter_array":
-            comparisons.extend(
-                compare_inverters(extracted.get(ext_key), questionnaire_data, field_cfg)
-            )
+            inv_results = compare_inverters(extracted.get(ext_key), questionnaire_data, field_cfg)
+            # Add form_field_id for inverter summary (1016553 = 逆變器匯總)
+            for inv_comp in inv_results:
+                inv_comp["form_field_id"] = "1016553"
+            comparisons.extend(inv_results)
             continue
 
         # Get extracted value and evidence
@@ -849,6 +851,9 @@ def _build_field_results(
 
     if field_comparisons:
         # Use granular per-field comparison results
+        # Logic: A field is Pass if ANY document finds a match.
+        # A field is Fail only if a document extracts a value AND it doesn't match.
+        # "Not found" (extracted=null) is ignored — it doesn't count as Fail.
         for doc_name, comparisons in field_comparisons.items():
             for comp in comparisons:
                 form_field_id = comp.get("form_field_id", "")
@@ -867,12 +872,20 @@ def _build_field_results(
                     continue
 
                 is_match = comp.get("match", False)
-                if not is_match:
-                    # Any fail → field is Fail
-                    field_results[form_field_id] = "Fail"
-                elif form_field_id not in field_results:
-                    # First pass → set to Pass (can be overridden by later Fail)
+                extracted = comp.get("extracted")
+                note = comp.get("note", "")
+
+                # Skip if LLM didn't find the field (null/not found)
+                if extracted is None or "未找到" in note:
+                    continue
+
+                if is_match:
+                    # Match found → Pass (overrides any previous state)
                     field_results[form_field_id] = "Pass"
+                else:
+                    # Mismatch found → Fail (only if not already Pass from another doc)
+                    if field_results.get(form_field_id) != "Pass":
+                        field_results[form_field_id] = "Fail"
     else:
         # Fallback: use per-document status (old behavior)
         for doc_result in report.results:
