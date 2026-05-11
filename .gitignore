@@ -32,6 +32,7 @@ htmlcov/
 .env
 .env.local
 activate_AWS_account.ps1
+export_aws_credentials.ps1
 
 # OS files
 Thumbs.db

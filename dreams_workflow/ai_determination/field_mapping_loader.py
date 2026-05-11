@@ -139,11 +139,11 @@ def build_complete_write_payload(
                 payload[case_field_id] = value
 
     # 3. Pass/Fail results → questionnaire result fields
+    # Always write all result fields (empty string clears old values)
     result_map = get_questionnaire_result_mapping()
     for q_field_id, result_field_id in result_map.items():
         result_value = field_results.get(q_field_id, "")
-        if result_value:
-            payload[result_field_id] = result_value
+        payload[result_field_id] = result_value
 
     # 4. Status update
     status_field = get_status_field_id()
