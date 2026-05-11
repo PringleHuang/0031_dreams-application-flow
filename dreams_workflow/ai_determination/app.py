@@ -835,8 +835,12 @@ def _build_field_results(
     Uses per-field comparison data when available (granular per-field Pass/Fail).
     Falls back to per-document status if field_comparisons is not provided.
 
-    A field is "Pass" if ALL documents that verify it agree it matches.
-    A field is "Fail" if ANY document that verifies it finds a mismatch.
+    Logic:
+    - If LLM returned null (not found) → ignore (doesn't affect result)
+    - If extracted value matches form → Pass
+    - If extracted value doesn't match → Fail
+    - If multiple documents verify same field: Fail wins over Pass
+    - If all documents return null → field not included in results
 
     Args:
         report: The ComparisonReport containing per-document results.
@@ -880,12 +884,12 @@ def _build_field_results(
                     continue
 
                 if is_match:
-                    # Match found → Pass (overrides any previous state)
-                    field_results[form_field_id] = "Pass"
+                    # Match found → Pass (only if not already Fail from another doc)
+                    if field_results.get(form_field_id) != "Fail":
+                        field_results[form_field_id] = "Pass"
                 else:
-                    # Mismatch found → Fail (only if not already Pass from another doc)
-                    if field_results.get(form_field_id) != "Pass":
-                        field_results[form_field_id] = "Fail"
+                    # Mismatch found → Fail (overrides Pass)
+                    field_results[form_field_id] = "Fail"
     else:
         # Fallback: use per-document status (old behavior)
         for doc_result in report.results:
