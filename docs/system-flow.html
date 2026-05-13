@@ -174,17 +174,20 @@ flowchart TD
 <!-- Tab 5 -->
 <div class="diagram-card" id="tab-5">
 <h2>續約簡化流程</h2>
-<div class="desc">續約案件不需 AI 判定和台電審核。客戶填電號後登入 SunVeillance 選擇續約案場, 完成後回寫雲端 RAGIC 即結案。<br><b>狀態</b>：程式碼框架已完成，需整合 SunVeillance API 後實測。</div>
+<div class="desc">續約案件不需 AI 判定和台電審核。本專案負責到「狀態更新為續約處理」為止。後續 SunVeillance 登入、選案場、回寫結案由另一系統團隊開發。<br><b>✓ 2026-05-12 實測通過</b>：問卷選「案場續約」→ 狀態驗證 → 狀態更新為「續約處理」。</div>
 <div class="mermaid">
 flowchart TD
-    A["案件狀態 - 續約處理"]:::todo --> B["提供 SunVeillance 登入資訊給客戶"]:::todo
-    B --> C["客戶登入 SunVeillance"]:::todo
-    C --> D["客戶選擇續約案場"]:::todo
-    D --> E{"選擇完成"}:::todo
-    E -->|否| D
-    E -->|是| F["回寫雲端 RAGIC 案件管理表單"]:::todo
-    F --> G["案件狀態 → 已結案"]:::todo
-    classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
+    A["問卷選擇「案場續約」"]:::done --> B["狀態驗證：確認=待填問卷"]:::done
+    B --> C["案件狀態 → 續約處理"]:::done
+    C --> D["提供 SunVeillance 登入資訊給客戶"]:::other
+    D --> E["客戶登入 SunVeillance"]:::other
+    E --> F["客戶選擇續約案場"]:::other
+    F --> G{"選擇完成"}:::other
+    G -->|否| F
+    G -->|是| H["回寫雲端 RAGIC 案件管理表單"]:::other
+    H --> I["案件狀態 → 已結案"]:::other
+    classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef other fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
 </div>
 <div class="legend">
 <h3>續約 vs 新約比較</h3>
