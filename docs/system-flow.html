@@ -129,11 +129,11 @@ flowchart TD
 flowchart TD
     A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS CreatePlantApplication API\n（GCP http://35.236.137.19/DREAMS_Service_TP）\n電號自動處理, 欄位值轉換"]:::done
     B --> C{"API 回應"}:::done
+    C -->|IsSuccess=true\nid>0, status=wait-approval| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
     C -->|IsSuccess=false\n電號不存在| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號新增】_{ID}/案場/電號"]:::done
     D --> E["台電以郵件通知電號建立完成"]:::todo
     E --> E2["SES 接收通知 → mail_receiver"]:::todo
-    E2 --> B
-    C -->|IsSuccess=true\nid>0, status=wait-approval| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
+    E2 --> A
     F --> G["SES 發送審核申請信給台電\n主旨:【DREAMS審核】_{ID}/案場/電號\n含佐證文件 + 申請資料 PDF"]:::done
     G --> H["台電回覆審核結果郵件"]:::todo
     H --> I["SES 接收（dreams-automation@enetek.net）\n→ S3 incoming/ → mail_receiver Lambda"]:::done
