@@ -215,8 +215,8 @@ stateDiagram-v2
     ManualConfirm --> InfoSupp : 人工確認不合格
     InfoSupp --> ManualConfirm : 補件後AI判定完成
     TaipowerReview --> PreSendConfirm : 台電回覆後
-    PreSendConfirm --> Installation : 人工確認核准
     PreSendConfirm --> TaipowerSupp : 人工確認需補件
+    PreSendConfirm --> Installation : 人工確認核准
     TaipowerSupp --> ManualConfirm : 補件AI判讀完成→待人工確認
     Installation --> Online : 自主檢查通過
     Online --> Closed : 資料同步完成
