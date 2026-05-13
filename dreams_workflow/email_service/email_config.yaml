@@ -47,6 +47,11 @@ cc:
     # record_id 從 case_id（即 RAGIC record ID）動態帶入
 
 templates:
+  anomaly_notification:
+    subject: "【DREAMS異常通知】_{dreams_apply_id}"
+    template_file: "anomaly_notification.html"
+    link: null
+
   questionnaire_notification:
     subject: "【DREAMS申辦】_{dreams_apply_id}_請填寫問卷提供案場的建置資訊"
     template_file: "questionnaire_notification.html"
@@ -62,7 +67,7 @@ templates:
         pfv1016284: "dreams_apply_id"
 
   supplement_notification:
-    subject: "DREAMS 申請 - 資料補件通知"
+    subject: "【DREAMS補件】_{dreams_apply_id}/案場_{site_name}"
     template_file: "supplement_notification.html"
     link:
       base_url: "https://ap13.ragic.com/solarcs/work-survey/9"
@@ -72,19 +77,26 @@ templates:
         ver: "new"
         version: "2"
       dynamic_params:
-        # pfv 預填值：補件參數（多選欄位，以 | 分隔）+ 出貨編號 + DREAMS_APPLY_ID
-        pfv1016697: "supplement_params"
-        pfv1016666: "shipment_order_id"
-        pfv1016649: "dreams_apply_id"
+        # pfv 預填值：從案件管理表（business-process2/2）欄位帶入
+        # pfv{補件問卷欄位ID}: "template_data中的key"
+        # 值來源 = webhook payload 中案件管理表的欄位 ID
+        pfv1016649: "dreams_apply_id"       # DREAMS_APPLY_ID (案件管理表 1016557)
+        pfv1016652: "site_name"             # 案場名稱 (案件管理表 1014670)
+        pfv1016697: "supplement_params"     # 補件代碼 (程式產生, 如 A|F|L)
       multi_select_separator: "|"
 
   taipower_application:
-    subject: "DREAMS 台電站點申請 - {case_id}"
+    subject: "【DREAMS審核】_{dreams_apply_id}/案場_{site_name}/電號{electricity_number}"
     template_file: "taipower_application.html"
     link: null
 
+  taipower_electricity_request:
+    subject: "【DREAMS電號新增】_{dreams_apply_id}_案場資訊釐清/{site_name}電號{electricity_number}"
+    template_file: "taipower_electricity_request.html"
+    link: null
+
   taipower_supplement:
-    subject: "DREAMS 申請 - 台電補件通知"
+    subject: "【DREAMS台電補件】_{dreams_apply_id}/案場_{site_name}"
     template_file: "taipower_supplement.html"
     link:
       base_url: "https://ap13.ragic.com/solarcs/work-survey/9"
@@ -101,14 +113,14 @@ templates:
       multi_select_separator: "|"
 
   approval_notification:
-    subject: "DREAMS 申請核准通知 - {case_id}"
+    subject: "【DREAMS核可】_{dreams_apply_id}/案場_{site_name}/電號{electricity_number}"
     template_file: "approval_notification.html"
     link: null
 
   account_activation:
-    subject: "SunVeillance 帳號啟用通知"
+    subject: "【DREAMS帳號開通】_{dreams_apply_id}/案場_{site_name}/電號{electricity_number}"
     template_file: "account_activation.html"
     link:
-      base_url: "https://sunveillance.example.com/login"
+      base_url: "https://dreams.plato-io.com"
       static_params: {}
       dynamic_params: {}

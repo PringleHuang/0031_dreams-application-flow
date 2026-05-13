@@ -27,7 +27,7 @@ from dreams_workflow.shared.models import CaseStatus
 logger = get_logger(__name__)
 
 # Environment variables
-S3_BUCKET = os.environ.get("SES_EMAIL_BUCKET", "")
+S3_BUCKET = os.environ.get("EMAIL_STORAGE_BUCKET", os.environ.get("SES_EMAIL_BUCKET", ""))
 AI_DETERMINATION_FUNCTION = os.environ.get("AI_DETERMINATION_FUNCTION_NAME", "")
 
 # Lazy-initialized clients
@@ -313,7 +313,7 @@ def _extract_s3_info(event: dict) -> tuple[str, str]:
     if "ses" in record:
         message_id = record["ses"]["mail"]["messageId"]
         bucket = S3_BUCKET
-        key = f"emails/{message_id}"
+        key = f"incoming/{message_id}"
         return bucket, key
 
     # Direct S3 event format

@@ -160,10 +160,17 @@ def lambda_handler(event: dict, context: Any) -> dict:
         message=f"Event classified as {event_type.value} (path={ragic_meta['path']}, sheet={ragic_meta['sheetIndex']}, ragicId={case_id})",
     )
 
-    # Deduplication: skip if we already processed this (case_id, event_type) recently
+    # Deduplication: skip if we already processed this exact event recently
+    # For CASE_STATUS_CHANGED, include the status value in the key so
+    # different status changes don't block each other
     import time
 
-    dedup_key = f"{case_id}:{event_type.value}"
+    if event_type == WebhookEventType.CASE_STATUS_CHANGED:
+        case_status_field = _get_case_status_field_id()
+        status_value = record_data.get(case_status_field, "")
+        dedup_key = f"{case_id}:{event_type.value}:{status_value}"
+    else:
+        dedup_key = f"{case_id}:{event_type.value}"
     now = time.time()
     last_processed = _recent_events.get(dedup_key)
     if last_processed and (now - last_processed) < _DEDUP_WINDOW_SECONDS:
@@ -333,8 +340,9 @@ def classify_webhook_event(ragic_meta: dict, record_data: dict) -> WebhookEventT
 
     # Questionnaire Form (work-survey/7)
     if QUESTIONNAIRE_FORM_PATH in path and sheet_index == QUESTIONNAIRE_SHEET_INDEX:
-        case_type = record_data.get(CASE_TYPE_FIELD, "")
-        if case_type == "續約":
+        # Use field 1016556 (DREAMS流程) to determine new/renewal
+        dreams_flow_field = record_data.get("1016556", "")
+        if dreams_flow_field == "案場續約":
             return WebhookEventType.RENEWAL_QUESTIONNAIRE
         return WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
 

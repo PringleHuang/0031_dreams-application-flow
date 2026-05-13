@@ -90,7 +90,7 @@
 1. WHEN 案件狀態由「待人工確認」變更為「資訊補件」，THE Workflow_System SHALL 讀取案件管理表單中「問卷結果」欄位，篩選值為 "Fail" 或 "Yes" 的項目
 2. THE Workflow_System SHALL 將篩選出的項目對應的「補件參數對應」值（A~N）匯總為 `|` 分隔字串，以 pfv 參數帶入補件問卷（DREAMS案場-補單，work-survey/9）連結的「補件參數」多選欄位（1016697）。其中，併聯方式、併聯點型式、併聯點電壓三項為同一群組（代碼 L），任一項 Fail 則三項一起補件；責任分界點型式、責任分界點電壓兩項為同一群組（代碼 M），任一項 Fail 則兩項一起補件
 3. THE Workflow_System SHALL 透過 AWS SES 發送補件通知電子郵件給客戶，郵件內容包含不合格項目說明與補件問卷連結（含 pfv 預填值：補件參數、出貨編號、DREAMS_APPLY_ID）
-4. WHEN 客戶完成補件問卷填寫，THE Workflow_System SHALL 重新觸發 AI 佐證文件判定流程（回到需求 2 的流程）
+4. WHEN 客戶完成補件問卷填寫，THE Workflow_System SHALL 從案件管理表讀取原有資料與佐證文件，以補件問卷 payload 中的非空值覆蓋對應欄位（欄位映射定義於 `field_mapping.yaml` 的 `supplement_to_questionnaire_mapping`），使用合併後的資料重新觸發 AI 佐證文件判定流程，並將所有判定結果回寫案件管理表，同時更新案件狀態為「待人工確認」
 
 ### 需求 5：台電站點申請流程
 

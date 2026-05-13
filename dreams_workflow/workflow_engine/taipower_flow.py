@@ -101,7 +101,7 @@ def handle_taipower_review(case_id: str, payload: dict) -> dict:
             logger,
             case_id=case_id,
             operation_type="taipower_review_api_error",
-            message=f"DREAMS API error: {response.error_code} - {response.error_message}",
+            message=f"DREAMS API error: {response.error_code} - {response.error_message}, raw: {json.dumps(response.raw_response, ensure_ascii=False)[:500] if response.raw_response else 'None'}",
             level="error",
         )
         return {
@@ -113,42 +113,65 @@ def handle_taipower_review(case_id: str, payload: dict) -> dict:
 
 
 def _build_case_data(case_id: str, payload: dict) -> dict:
-    """Build case data dict for DREAMS Form API submission.
+    """Build case data dict for DREAMS CreatePlantApplication API.
 
-    Extracts relevant fields from the webhook payload or fetches from RAGIC.
+    Extracts relevant fields from the webhook payload and maps them
+    to the logical names expected by DreamsApiClient.
 
     Args:
         case_id: The RAGIC case record ID.
-        payload: Webhook payload.
+        payload: Webhook payload (contains all case management form fields).
 
     Returns:
-        Dict with case data fields for the DREAMS API.
+        Dict with case data fields for the DREAMS API client.
     """
-    # Extract from payload (field IDs from ragic_fields.yaml)
     from dreams_workflow.shared.ragic_fields_config import get_case_management_fields
 
     cm_fields = get_case_management_fields()
+
+    # Map RAGIC field IDs to logical names for DreamsApiClient
     case_data = {
-        "electricity_number": payload.get(cm_fields.get("electricity_number", "1015407"), payload.get("electricity_number", "")),
-        "customer_name": payload.get(cm_fields.get("customer_name", "1015398"), payload.get("customer_name", "")),
-        "site_address": payload.get(cm_fields.get("site_address", "1015399"), payload.get("site_address", "")),
-        "site_name": payload.get(cm_fields.get("site_name", "1014670"), payload.get("site_name", "")),
-        "capacity_kw": payload.get(cm_fields.get("capacity_kw", "1015409"), payload.get("capacity_kw", "")),
-        "connection_method": payload.get(cm_fields.get("connection_method", "1015415"), payload.get("connection_method", "")),
-        "selling_method": payload.get(cm_fields.get("selling_method", "1015414"), payload.get("selling_method", "")),
+        "electricity_number": payload.get(cm_fields.get("electricity_number", "1015407"), ""),
+        "site_name": payload.get(cm_fields.get("site_name", "1014670"), ""),
+        "customer_name": payload.get(cm_fields.get("customer_name", "1015398"), ""),
+        "site_address": payload.get(cm_fields.get("site_address", "1015399"), ""),
+        "capacity_kw": payload.get(cm_fields.get("capacity_kw", "1015409"), ""),
+        # Fields from case management form (direct field IDs)
+        "plant_type": payload.get("1015412", ""),           # 案場類型
+        "parallel_type": payload.get("1015415", ""),        # 併聯方式
+        "retailing_policy": payload.get("1015414", ""),     # 售電方式
+        "agreement_number": payload.get("1015413", ""),     # 縣府同意備案函文編號
+        "parallel_phase_type": payload.get("1015417", ""),  # 併聯點型式
+        "parallel_voltage": payload.get("1015419", ""),     # 併聯點電壓
+        "service_phase_type": payload.get("1015416", ""),   # 責任分界點型式
+        "service_voltage": payload.get("1015418", ""),      # 責任分界點電壓
+        "inverters": payload.get("1016641", ""),            # 逆變器匯總
+        "install_date": payload.get("1015401", ""),         # 市電併聯日
+        "owner_name": payload.get("1015410", ""),           # 現場安裝聯絡人-姓名
+        "owner_phone": payload.get("1015411", ""),          # 現場安裝聯絡人-電話
     }
 
-    # If key fields are missing, try to fetch from RAGIC
+    # If key fields are missing from payload, try to fetch from RAGIC
     if not case_data["electricity_number"]:
         try:
             ragic_client = CloudRagicClient()
             try:
-                record = ragic_client.get_questionnaire_data(case_id)
-                case_data["electricity_number"] = record.get(cm_fields.get("electricity_number", "1015407"), "")
-                if not case_data["customer_name"]:
-                    case_data["customer_name"] = record.get(cm_fields.get("customer_name", "1015398"), "")
+                record = ragic_client.get_case_record(case_id)
+                case_data["electricity_number"] = record.get("1015407", "")
+                if not case_data["site_name"]:
+                    case_data["site_name"] = record.get("1014670", "")
                 if not case_data["site_address"]:
-                    case_data["site_address"] = record.get(cm_fields.get("site_address", "1015399"), "")
+                    case_data["site_address"] = record.get("1015399", "")
+                if not case_data["capacity_kw"]:
+                    case_data["capacity_kw"] = record.get("1015409", "")
+                if not case_data["plant_type"]:
+                    case_data["plant_type"] = record.get("1015412", "")
+                if not case_data["parallel_type"]:
+                    case_data["parallel_type"] = record.get("1015415", "")
+                if not case_data["retailing_policy"]:
+                    case_data["retailing_policy"] = record.get("1015414", "")
+                if not case_data["inverters"]:
+                    case_data["inverters"] = record.get("1016641", "")
             finally:
                 ragic_client.close()
         except Exception as e:
@@ -184,7 +207,7 @@ def _handle_api_success(
         logger,
         case_id=case_id,
         operation_type="taipower_review_success",
-        message=f"DREAMS API success, case_number: {response.case_number}",
+        message=f"DREAMS API success, case_number: {response.case_number}, raw_response: {json.dumps(response.raw_response, ensure_ascii=False)[:500]}",
     )
 
     # Step 1: Write case_number to RAGIC
@@ -224,9 +247,11 @@ def _handle_api_success(
     # Step 4: Send review request email to Taipower
     taipower_email = payload.get("taipower_contact_email", "")
     if not taipower_email:
-        taipower_email = os.environ.get("TAIPOWER_BUSINESS_CONTACT_EMAIL", "")
+        taipower_email = os.environ.get("TAIPOWER_BUSINESS_CONTACT_EMAIL", "pringle.huang@gmail.com")
 
     if taipower_email:
+        # Strip dashes from electricity number for display
+        electricity_number_display = payload.get("1015407", payload.get("electricity_number", "")).replace("-", "")
         _invoke_email_service(
             case_id=case_id,
             email_type=EmailType.TAIPOWER_APPLICATION,
@@ -234,9 +259,9 @@ def _handle_api_success(
             template_data={
                 "case_id": case_id,
                 "case_number": response.case_number,
-                "customer_name": payload.get("customer_name", ""),
-                "site_name": payload.get("site_name", ""),
-                "electricity_number": payload.get("electricity_number", ""),
+                "site_name": payload.get("1014670", payload.get("site_name", "")),
+                "electricity_number": electricity_number_display,
+                "dreams_apply_id": payload.get("1016557", payload.get("dreams_apply_id", "")),
             },
             attachments=attachments,
         )
@@ -279,19 +304,20 @@ def _handle_no_electricity_number(case_id: str, payload: dict) -> dict:
     )
 
     # Send notification to Taipower review contact
-    taipower_review_email = os.environ.get("TAIPOWER_REVIEW_CONTACT_EMAIL", "")
+    taipower_review_email = os.environ.get("TAIPOWER_REVIEW_CONTACT_EMAIL", "pringle.huang@gmail.com")
 
     if taipower_review_email:
+        # Strip dashes from electricity number for display
+        electricity_number_display = payload.get("1015407", payload.get("electricity_number", "")).replace("-", "")
         _invoke_email_service(
             case_id=case_id,
-            email_type=EmailType.TAIPOWER_APPLICATION,
+            email_type=EmailType.TAIPOWER_ELECTRICITY_REQUEST,
             recipient_email=taipower_review_email,
             template_data={
                 "case_id": case_id,
-                "customer_name": payload.get("customer_name", ""),
-                "electricity_number": payload.get("electricity_number", ""),
-                "message": "電號尚未建立於 DREAMS 系統，請協助建立後通知。",
-                "is_electricity_number_request": True,
+                "site_name": payload.get("1014670", payload.get("site_name", "")),
+                "electricity_number": electricity_number_display,
+                "dreams_apply_id": payload.get("1016557", payload.get("dreams_apply_id", "")),
             },
             attachments=None,
         )
@@ -304,7 +330,10 @@ def _handle_no_electricity_number(case_id: str, payload: dict) -> dict:
 
 
 def _get_supporting_document_attachments(case_id: str) -> list[dict]:
-    """Download supporting documents from RAGIC and format as email attachments.
+    """Download supporting documents from RAGIC case management form and format as email attachments.
+
+    Documents are stored in the case management form (business-process2/2),
+    not the questionnaire form.
 
     Args:
         case_id: The RAGIC case record ID.
@@ -317,7 +346,12 @@ def _get_supporting_document_attachments(case_id: str) -> list[dict]:
     try:
         ragic_client = CloudRagicClient()
         try:
-            documents = ragic_client.get_supporting_documents(case_id)
+            # Get documents from case management form (not questionnaire form)
+            documents = ragic_client.get_supporting_documents(
+                case_id,
+                form_path=ragic_client.case_form_path,
+                form_index=ragic_client.case_form_index,
+            )
             for filename, file_bytes in documents:
                 if file_bytes:
                     attachments.append({

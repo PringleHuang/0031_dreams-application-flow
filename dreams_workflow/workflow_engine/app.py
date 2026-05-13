@@ -248,8 +248,38 @@ def handle_questionnaire_response(
         message=f"Processing questionnaire response (is_renewal={is_renewal}, resolved_case_id={case_id})",
     )
 
+    # Verify case status is "待填問卷" before proceeding
+    case_context = resolve_case_context(payload)
+    current_status = case_context.get("case_status", "") if case_context.get("resolved") else ""
+
+    if current_status and current_status != CaseStatus.PENDING_QUESTIONNAIRE.value:
+        # Status mismatch — send anomaly notification
+        log_operation(
+            logger,
+            case_id=case_id,
+            operation_type="questionnaire_status_mismatch",
+            message=f"Expected status '待填問卷' but got '{current_status}', sending anomaly notification",
+            level="warning",
+        )
+        _invoke_email_service(
+            case_id=case_id,
+            email_type=EmailType.ANOMALY_NOTIFICATION,
+            recipient_email="pringle.huang@gmail.com",
+            template_data={
+                "case_id": case_id,
+                "dreams_apply_id": case_context.get("dreams_apply_id", ""),
+                "anomaly_message": f"問卷回覆觸發但案件狀態不正確：預期「待填問卷」，實際「{current_status}」",
+            },
+        )
+        return {
+            "case_id": case_id,
+            "action": "status_mismatch_anomaly",
+            "expected_status": CaseStatus.PENDING_QUESTIONNAIRE.value,
+            "actual_status": current_status,
+        }
+
     if is_renewal:
-        # Renewal case: update status to "續約處理"
+        # Status OK — update to "續約處理"
         ragic_client = CloudRagicClient()
         try:
             transition_case_status(
@@ -384,6 +414,13 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
     parameter codes (A~Q joined by |), and sends a supplement notification
     email with the supplement questionnaire link containing pfv params.
 
+    Also builds a comparison table for the email showing:
+    - Field name
+    - Provided value (from questionnaire)
+    - Values extracted by LLM from each document
+
+    Only Fail items are included in the table.
+
     Args:
         case_id: The RAGIC case record ID.
         payload: Webhook payload.
@@ -395,6 +432,8 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
     """
     from dreams_workflow.ai_determination.field_mapping_loader import (
         build_supplement_params,
+        get_direct_mapping,
+        get_llm_result_mapping,
         get_questionnaire_result_mapping,
         get_supplement_params_separator,
     )
@@ -440,15 +479,148 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
             level="warning",
         )
 
-    # Get case info for email
+    # Get case info for email from payload
     from dreams_workflow.shared.ragic_fields_config import get_case_management_fields as _get_cm_fields
     _cm = _get_cm_fields()
-    shipment_order_id = payload.get(_cm.get("shipment_order_id", "1015021"), payload.get("shipment_order_id", ""))
-    dreams_apply_id = payload.get(_cm.get("dreams_apply_id", "1016557"), payload.get("dreams_apply_id", ""))
-    customer_email = payload.get("customer_email", "")
+    dreams_apply_id = payload.get(_cm.get("dreams_apply_id", "1016557"), "")
+    customer_email = payload.get(_cm.get("customer_email", "1016558"), "")
+    site_name = payload.get("1014670", "")  # 案場名稱
 
     if not customer_email:
         customer_email = _get_customer_email(case_id)
+
+    # Build failed items comparison table for email
+    # Separate into two categories:
+    # - Document items (A~E): shown in "佐証文件提供" table with checkmarks
+    # - Field items (F~N): shown in comparison table with provided vs extracted values
+
+    # Document codes (A~E) - these are file re-upload requests
+    document_codes = {"A", "B", "C", "D", "E"}
+    # Document code → human-readable name
+    document_names = {
+        "A": "審訖圖",
+        "B": "細部協商",
+        "C": "縣府同意備案函文",
+        "D": "購(躉)售電契約書",
+        "E": "併聯審查意見書",
+    }
+
+    # Field name mapping (questionnaire field ID → human-readable name)
+    field_names = {
+        "1014595": "案場詳細地址",
+        "1014590": "電號",
+        "1014749": "裝置量(kW)",
+        "1014618": "案場類型",
+        "1014623": "縣府同意備案函文編號",
+        "1014620": "售電方式",
+        "1014619": "併聯方式",
+        "1014621": "併聯點型式",
+        "1014644": "併聯點電壓",
+        "1014622": "責任分界點型式",
+        "1014645": "責任分界點電壓",
+        "1016553": "逆變器匯總",
+    }
+
+    # Document field IDs (A~E correspond to these questionnaire field IDs)
+    document_field_ids = {"1014650", "1014652", "1014651", "1014653", "1014654"}
+
+    # Document columns for the comparison table
+    # Keys must match field_mapping.yaml llm_result_mapping keys exactly
+    doc_column_keys = ["審訖圖", "細部協商", "縣府同意備案函文", "購售電契約封面及內文第一頁", "併聯審查意見書"]
+    # Display names for the table headers
+    doc_column_display = {
+        "審訖圖": "審訖圖",
+        "細部協商": "細部協商",
+        "縣府同意備案函文": "縣府同意備案函文",
+        "購售電契約封面及內文第一頁": "購(躉)售電契約",
+        "併聯審查意見書": "併聯審查意見書",
+    }
+
+    # LLM result field IDs per document (from field_mapping.yaml llm_result_mapping)
+    llm_map = get_llm_result_mapping()
+
+    # Direct mapping to get "provided value" field IDs
+    direct_map = get_direct_mapping()
+
+    # Get supplement param codes to determine which codes are triggered
+    from dreams_workflow.ai_determination.field_mapping_loader import get_supplement_param_codes
+    param_codes = get_supplement_param_codes()
+
+    # Build the two separate lists
+    failed_table = []  # Field comparison table (F~N)
+    failed_doc_codes: set[str] = set()  # Document codes that are Fail (A~E)
+
+    reverse_result_map = {v: k for k, v in result_mapping.items()}
+
+    for result_field_id, value in result_fields.items():
+        if value not in ("Fail", "Yes"):
+            continue
+
+        q_field_id = reverse_result_map.get(result_field_id, "")
+        if not q_field_id:
+            continue
+
+        # Check if this is a document item (A~E) or a field item (F~N)
+        if q_field_id in document_field_ids:
+            # Document item → add to failed_documents list
+            code = param_codes.get(q_field_id, "")
+            if code:
+                failed_doc_codes.add(code)
+        else:
+            # Field item → add to comparison table
+            field_name = field_names.get(q_field_id, q_field_id)
+
+            # Get provided value from direct mapping target field in payload
+            provided_value = ""
+            case_field_id = direct_map.get(q_field_id, "")
+            if case_field_id:
+                provided_value = payload.get(case_field_id, "")
+
+            # Get LLM extracted values from each document
+            doc_values = []
+            for doc_name in doc_column_keys:
+                doc_field_map = llm_map.get(doc_name) or {}
+                llm_field_id = doc_field_map.get(q_field_id, "")
+                if llm_field_id:
+                    raw_value = payload.get(llm_field_id, "")
+                    # Strip evidence text (after \n[依據])
+                    if raw_value and "\n[依據]" in raw_value:
+                        raw_value = raw_value.split("\n[依據]")[0].strip()
+                    doc_values.append(raw_value)
+                else:
+                    doc_values.append("")
+
+            failed_table.append({
+                "field_name": field_name,
+                "provided_value": provided_value,
+                "doc_values": doc_values,
+            })
+
+    # Build failed_documents list (all 5 documents, mark Fail ones with V)
+    all_doc_codes_ordered = ["A", "B", "C", "D", "E"]
+    failed_documents = []
+    for code in all_doc_codes_ordered:
+        failed_documents.append({
+            "name": document_names[code],
+            "check": "V" if code in failed_doc_codes else "",
+        })
+
+    # Sort document columns by how many values they have (most data first)
+    # Count non-empty values per column across all failed_table rows
+    col_value_counts = []
+    for col_idx, doc_name in enumerate(doc_column_keys):
+        count = sum(1 for row in failed_table if row["doc_values"][col_idx])
+        col_value_counts.append((col_idx, doc_name, count))
+
+    # Sort by count descending
+    col_value_counts.sort(key=lambda x: x[2], reverse=True)
+
+    # Reorder columns in failed_table rows and build display column names
+    sorted_col_indices = [c[0] for c in col_value_counts]
+    doc_columns = [doc_column_display[c[1]] for c in col_value_counts]
+
+    for row in failed_table:
+        row["doc_values"] = [row["doc_values"][i] for i in sorted_col_indices]
 
     # Send supplement notification email with pfv params
     _invoke_email_service(
@@ -458,9 +630,12 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
         template_data={
             "case_id": case_id,
             "supplement_params": supplement_params,
-            "shipment_order_id": shipment_order_id,
             "dreams_apply_id": dreams_apply_id,
+            "site_name": site_name,
             "customer_name": payload.get("customer_name", ""),
+            "failed_table": failed_table,
+            "doc_columns": doc_columns,
+            "failed_documents": failed_documents,
         },
     )
 
@@ -468,7 +643,7 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
         logger,
         case_id=case_id,
         operation_type="handle_info_supplement_complete",
-        message=f"Supplement notification sent, params: {supplement_params}",
+        message=f"Supplement notification sent, params: {supplement_params}, failed_fields: {len(failed_table)}, failed_docs: {len(failed_doc_codes)}",
     )
 
     return {
@@ -476,6 +651,8 @@ def _handle_info_supplement(case_id: str, payload: dict) -> dict:
         "action": "info_supplement_processed",
         "supplement_params": supplement_params,
         "email_sent_to": customer_email,
+        "failed_items_count": len(failed_table),
+        "failed_docs_count": len(failed_doc_codes),
     }
 
 

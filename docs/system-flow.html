@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DREAMS 申請流程自動化 - 系統流程圖 v5</title>
+    <title>DREAMS 申請流程自動化 - 系統流程圖 v6</title>
     <script src="mermaid.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -33,14 +33,14 @@
 </head>
 <body>
 <div class="header">
-    <h1>DREAMS 申請流程自動化 - 系統流程圖 v5</h1>
-    <p>Agent 直寫雲端 RAGIC, Webhook 統一入口, DREAMS 填單 API 整合</p>
+    <h1>DREAMS 申請流程自動化 - 系統流程圖 v6</h1>
+    <p>Agent 直寫雲端 RAGIC, Webhook 統一入口, AI 判定寫入驗證通過, DREAMS 填單 API 整合</p>
 </div>
 <div class="tabs">
     <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 實測通過</span></div>
-    <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-partial">程式完成・待實測</span></div>
-    <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-partial">程式完成・待實測</span></div>
-    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-partial">程式完成・待整合</span></div>
+    <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-done">✓ 實測通過</span></div>
+    <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-done">✓ 實測通過</span></div>
+    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-partial">API整合完成・待回傳確認</span></div>
     <div class="tab" onclick="showTab(4)">四、新約-安裝結案 <span class="badge badge-partial">程式完成・待整合</span></div>
     <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-partial">程式完成・待整合</span></div>
     <div class="tab" onclick="showTab(6)">六、狀態轉換總覽</div>
@@ -70,47 +70,51 @@ flowchart TD
 <!-- Tab 1 -->
 <div class="diagram-card" id="tab-1">
 <h2>階段一 - 問卷續約/新約分流</h2>
-<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。<br><b>分類邏輯</b>：問卷 Webhook 來自 work-survey/7, payload 不含案件狀態。下游 Lambda 從 DREAMS_APPLY_ID（格式: {出貨單號}-{ragicId}）split 取最後一段作為案件 ragicId, 再查詢 business-process2/2/{ragicId} 取得案件類型。</div>
+<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。<br><b>分類邏輯</b>：webhook_handler 用欄位 1016556（DREAMS流程）判斷：「案場續約」→ RENEWAL_QUESTIONNAIRE，其他 → NEW_CONTRACT_FULL_QUESTIONNAIRE。<br><b>狀態驗證</b>：下游 Lambda 先查案件管理表確認狀態=「待填問卷」，若不是則發異常通知信給負責人，不進行後續處理。<br><b>✓ 2026-05-11 新約實測通過</b>：問卷 Webhook → 分類 → AI 判定。<br><b>待測試</b>：續約分流 → 狀態更新為「續約處理」。</div>
 <div class="mermaid">
 flowchart TD
     A["案件狀態 - 待填問卷"]:::done --> B["客戶開啟 RAGIC 問卷\n（DREAMS案場申請單 work-survey/7）"]:::done
-    B --> C{"問卷第一題 - 是否續約"}:::done
-    C -->|續約| D["客戶僅填寫電號"]:::done
+    B --> C{"欄位1016556 DREAMS流程"}:::done
+    C -->|案場續約| D["客戶僅填寫電號"]:::done
     D --> E["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
-    E --> F["webhook_handler 分類\n→ 依 case_type 欄位判斷"]:::done
-    F --> F2["下游 Lambda 從 DREAMS_APPLY_ID\nsplit('-') 取 ragicId\n查詢案件管理表確認案件類型"]:::done
-    F2 --> G["案件狀態 → 續約處理"]:::done
-    G --> H(["進入續約簡化流程 Tab五"])
-    C -->|新約| I["客戶填寫完整資料 + 上傳5份佐證文件"]:::done
+    E --> F["webhook_handler 分類\n→ 欄位1016556='案場續約'\n→ RENEWAL_QUESTIONNAIRE"]:::done
+    F --> F1{"查案件管理表\n狀態=待填問卷?"}:::done
+    F1 -->|否| F1E["發異常通知信給負責人\n（狀態不正確）"]:::done
+    F1 -->|是| F2["workflow_engine\n案件狀態 → 續約處理"]:::todo
+    F2 --> H(["進入續約簡化流程 Tab五"])
+    C -->|新設案場| I["客戶填寫完整資料 + 上傳5份佐證文件"]:::done
     I --> J["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
     J --> K["webhook_handler 分類\n→ NEW_CONTRACT_FULL_QUESTIONNAIRE"]:::done
-    K --> K2["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表"]:::done
+    K --> K1{"查案件管理表\n狀態=待填問卷?"}:::done
+    K1 -->|否| K1E["發異常通知信給負責人"]:::done
+    K1 -->|是| K2["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → AI 判定"]:::done
     K2 --> L(["進入 AI 判定流程 Tab二"])
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
+    classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
 </div>
 </div>
 
 <!-- Tab 2 -->
 <div class="diagram-card" id="tab-2">
 <h2>新約流程 - 資訊收集階段</h2>
-<div class="desc">新約案件 - 從 DREAMS_APPLY_ID 解析目標記錄 ID, AI 逐份比對佐證文件, 一次性將所有結果寫入 RAGIC, 公司聯絡人在 RAGIC 上確認並手動改狀態。<br><b>補件問卷分類</b>：補件問卷來自 work-survey/9, 下游 Lambda 從 DREAMS_APPLY_ID 解析 ragicId → 查詢案件管理表 1015456 欄位 → 區分「資訊補件」或「台電補件」。</div>
+<div class="desc">新約案件 - 從 DREAMS_APPLY_ID 解析目標記錄 ID, AI 逐份比對佐證文件, 一次性將所有結果寫入 RAGIC, 公司聯絡人在 RAGIC 上確認並手動改狀態。<br><b>補件問卷分類</b>：補件問卷來自 work-survey/9, 下游 Lambda 從 DREAMS_APPLY_ID 解析 ragicId → 查詢案件管理表 1015456 欄位 → 區分「資訊補件」或「台電補件」。<br><b>✓ 2026-05-11 AI判定實測通過</b>：Webhook → 解析 ragicId → 下載5份佐證文件 → Bedrock AI 比對 → Per-field Pass/Fail → 逆變器提取 → RAGIC 寫入 → 狀態「待人工確認」。<br><b>✓ 2026-05-12 資訊補件實測通過</b>：人工改狀態「資訊補件」→ 讀取 Fail 項目 → 產生補件代碼（C|F|M）→ 發送補件通知信（含比對表格 + 佐証文件勾選 + 補件問卷連結）。<br><b>✓ 2026-05-12 補件重新判定實測通過</b>：補件問卷 Webhook → 從案件管理表讀取原有資料&文件 → 用補件payload覆蓋4欄位 → 下載5份文件 → AI重新判定 → 66欄位回寫RAGIC → 狀態「待人工確認」。</div>
 <div class="mermaid">
 flowchart TD
     A["新約案件 - Webhook 觸發"]:::done --> A2["從 DREAMS_APPLY_ID 解析 RAGIC record ID\n（split '-' 取最後一段）"]:::done
     A2 --> B["下載5份佐證文件附件"]:::done
-    B --> C["逐份文件 AI 判定\n（Bedrock 審訖圖/細部協商/縣府函文/購售電契約/併聯審查意見書）"]:::done
-    C --> D["組合完整寫入資料:\n直接欄位 + LLM判定值 + Pass/Fail + 狀態"]:::done
-    D --> E["單次 RAGIC POST 寫入案件管理表單\n狀態 → 待人工確認"]:::done
+    B --> C["逐份文件 AI 判定\n（Bedrock jp.anthropic.claude-sonnet-4-6\n審訖圖/細部協商/縣府函文/購售電契約/併聯審查意見書）"]:::done
+    C --> D["組合完整寫入資料:\n直接欄位 + LLM判定值(含依據) + Pass/Fail + 逆變器匯總\n格式: brand|model|qty, 多組以', '連接"]:::done
+    D --> E["單次 RAGIC POST 寫入案件管理表單\n狀態 → 待人工確認\n（所有欄位一律寫入，空字串清除舊值）"]:::done
     E --> F["公司聯絡人在 RAGIC 檢視判定結果"]:::done
     F --> G{"人工在 RAGIC 手動改狀態"}:::done
     G -->|改為 台電審核| H["RAGIC Webhook 觸發"]:::done
     H --> I(["進入台電審核 Tab三"])
     G -->|改為 資訊補件| J["RAGIC Webhook 觸發\n（path=/business-process2, sheet=2）"]:::done
-    J --> K["讀取問卷結果 Fail/Yes 欄位\n匯總補件參數代碼 A~N（含群組邏輯）"]:::todo
-    K --> L["SES 發送補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]:::todo
-    L --> M["客戶填寫補件問卷\n（DREAMS案場-補單 work-survey/9）"]:::todo
-    M --> M2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]:::todo
-    M2 --> M3["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表\n確認狀態=資訊補件"]:::todo
+    J --> K["讀取問卷結果 Fail/Yes 欄位\n分離: A~E佐証文件 / F~N欄位比對\n匯總補件代碼（含群組邏輯 L/M）"]:::done
+    K --> L["SES 發送補件通知信\n主旨:【DREAMS補件】_{ID}_案場資訊釐清\n內容: 資料比對表 + 佐証文件勾選表\n連結: work-survey/9 + pfv(ID+案場名稱+代碼)"]:::done
+    L --> M["客戶填寫補件問卷\n（DREAMS案場-補單 work-survey/9）"]:::done
+    M --> M2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]:::done
+    M2 --> M3["ai_determination:\n1.從案件管理表讀取原有資料&文件\n2.用補件payload覆蓋對應欄位\n3.AI重新判定合併後資料\n4.回寫案件管理表+狀態→待人工確認"]:::done
     M3 -->|AI 重新判定| A2
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
@@ -120,15 +124,15 @@ flowchart TD
 <!-- Tab 3 -->
 <div class="diagram-card" id="tab-3">
 <h2>新約流程 - 台電審核階段</h2>
-<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>狀態</b>：程式碼框架已完成，需整合 DREAMS API 和 SES 收信功能後實測。</div>
+<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>✓ 2026-05-12 台電申請實測通過</b>：Webhook 觸發 → 呼叫 GCP CreatePlantApplication API → 成功取得案號 → 下載 PDF（450KB）→ 案號寫入 RAGIC → 發送審核申請信。<br><b>⚠️ 待確認</b>：API 回傳 IsSuccess=true 但 id=0 時的判斷邏輯（等 API 作者修正回傳格式）。</div>
 <div class="mermaid">
 flowchart TD
-    A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS 填單 API"]:::todo
-    B --> C{"API 回應"}:::todo
-    C -->|無電號| D["發送電號建立請求通知給台電審核聯絡人"]:::todo
+    A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS CreatePlantApplication API\n（GCP http://35.236.137.19）\n電號去除'-', 欄位值轉換"]:::done
+    B --> C{"API 回應"}:::done
+    C -->|無電號/id=0| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號申請】_{ID}/案場/電號"]:::done
     D --> E["等待電號建立完成"]:::todo
-    C -->|成功: 案號+PDF| F["案號寫入 RAGIC"]:::todo
-    F --> G["SES 發送審核申請信給台電\n含佐證文件 + 申請資料 PDF"]:::todo
+    C -->|成功: id>0| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
+    F --> G["SES 發送審核申請信給台電\n主旨:【DREAMS審核】_{ID}/案場/電號\n含佐證文件 + 申請資料 PDF"]:::done
     G --> H["台電回覆審核結果郵件"]:::todo
     H --> I["SES 接收 + Lambda 解析"]:::todo
     I --> J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::todo
@@ -382,9 +386,11 @@ sequenceDiagram
     <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成＋實測通過
     <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 程式完成・待實測/整合（需外部系統配合）
     <span style="display:inline-block; width:16px; height:16px; background:#fff; border:2px solid #9e9e9e; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 未標色（不涉及程式開發）
-    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-09
+    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-12
     <br><br>
-    <b>待整合外部系統：</b> DREAMS 填單 API、SunVeillance API、台電郵件收發（SES Receipt Rule）
+    <b>已實測通過：</b> 每日出貨掃描 → Webhook 分類 → 問卷通知信 → 問卷分流 → AI 判定（Bedrock）→ RAGIC 寫入 → 資訊補件通知（含比對表格 + 佐証文件勾選）→ 補件問卷回覆 → AI 重新判定 → 台電申請（CreatePlantApplication + PDF下載 + 審核信）
+    <br>
+    <b>待整合外部系統：</b> 台電郵件收發（SES Receipt Rule）、SunVeillance API、DREAMS API 回傳格式確認（id=0 判斷）
 </div>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'default' });

@@ -247,9 +247,11 @@ class EmailConfig:
     def _email_type_to_config_key(email_type: EmailType) -> str:
         """Map EmailType enum to config YAML key."""
         mapping = {
+            EmailType.ANOMALY_NOTIFICATION: "anomaly_notification",
             EmailType.QUESTIONNAIRE_NOTIFICATION: "questionnaire_notification",
             EmailType.SUPPLEMENT_NOTIFICATION: "supplement_notification",
             EmailType.TAIPOWER_APPLICATION: "taipower_application",
+            EmailType.TAIPOWER_ELECTRICITY_REQUEST: "taipower_electricity_request",
             EmailType.TAIPOWER_SUPPLEMENT: "taipower_supplement",
             EmailType.APPROVAL_NOTIFICATION: "approval_notification",
             EmailType.ACCOUNT_ACTIVATION: "account_activation",

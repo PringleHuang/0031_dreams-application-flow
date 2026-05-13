@@ -157,19 +157,44 @@ class TestEmailConfig:
         assert "https://example.com/form?id=123" in html
 
     def test_render_template_supplement_with_failed_items(self):
-        """Supplement notification template renders failed items list."""
+        """Supplement notification template renders comparison table and document checklist."""
         config = EmailConfig()
         html = config.render_template(
             "supplement_notification.html",
             {
                 "case_id": "C-2",
                 "questionnaire_url": "https://example.com/supplement",
-                "failed_items": ["審訖圖不清晰", "契約封面缺頁"],
+                "failed_table": [
+                    {
+                        "field_name": "案場詳細地址",
+                        "provided_value": "高雄市大寮區上發一路36號",
+                        "doc_values": ["高雄市大寮區大寮段二小段1161地號", "", "", "", ""],
+                    },
+                    {
+                        "field_name": "責任分界點電壓",
+                        "provided_value": "11.4kV",
+                        "doc_values": ["22.8kV", "22.8kV", "", "", ""],
+                    },
+                ],
+                "doc_columns": ["審訖圖", "細部協商", "縣府同意備案函文", "購售電契約", "併聯審查意見書"],
+                "failed_documents": [
+                    {"name": "審訖圖", "check": ""},
+                    {"name": "細部協商", "check": "V"},
+                    {"name": "縣府同意備案函文", "check": "V"},
+                    {"name": "購(躉)售電契約書", "check": ""},
+                    {"name": "併聯審查意見書", "check": ""},
+                ],
             },
         )
-        assert "審訖圖不清晰" in html
-        assert "契約封面缺頁" in html
-        assert "C-2" in html
+        # Comparison table
+        assert "案場詳細地址" in html
+        assert "責任分界點電壓" in html
+        assert "高雄市大寮區上發一路36號" in html
+        assert "22.8kV" in html
+        # Document checklist
+        assert "佐証文件提供" in html
+        assert "細部協商" in html
+        assert "問卷網址連結" in html
 
 
 # =============================================================================

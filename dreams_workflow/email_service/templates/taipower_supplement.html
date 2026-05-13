@@ -1,23 +1,72 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head><meta charset="UTF-8"></head>
-<body style="font-family: 'Microsoft JhengHei', sans-serif; line-height: 1.8; color: #333;">
-<p>您好，</p>
+<body style="font-family: 'Noto Sans TC Medium', 'Microsoft JhengHei', sans-serif; line-height: 1.8; color: #333; padding: 20px;">
 
-<p>您的 DREAMS 申請案件（案件編號：{{ case_id }}）經台電審核後需要補件，駁回原因如下：</p>
+<p>您好</p>
 
-<blockquote style="border-left: 4px solid #e0e0e0; padding-left: 16px; margin: 16px 0; color: #555;">
-{{ rejection_reason }}
-</blockquote>
+<p>案場未通過審核，請修正以利備查。</p>
 
-<p>請點擊下方連結，針對上述項目進行補正：</p>
+<p>電號：{{ electricity_number }}<br>
+案場名稱：{{ site_name }}</p>
 
-<p><a href="{{ questionnaire_url }}" style="color: #0066cc; font-weight: bold;">台電補件問卷連結</a></p>
+<p>關於本案送件台電審查進度，目前接獲台電回覆意見 (如下圖) 。為符合台電審查規範，請使用問卷網址連結提供修正資料。</p>
 
-<p>補件完成後，系統將自動重新提交台電審核申請。如有任何疑問，歡迎隨時聯絡我們。</p>
+<p><a href="{{ questionnaire_url }}" style="color: #0066cc; font-weight: bold; font-size: 16px;">問卷網址連結</a></p>
 
-<p>感謝您的配合！</p>
+{% if taipower_reply_comment %}
+<p><strong>【需補正事項】</strong></p>
+<p>{{ taipower_reply_comment }}</p>
+{% endif %}
 
-<p>祝 商祺</p>
+{% if failed_table and failed_table|length > 0 %}
+<table style="border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 14px;">
+  <thead>
+    <tr style="background-color: #f5f5f5;">
+      <th style="border: 1px solid #ddd; padding: 8px 12px; text-align: left;">資料欄位</th>
+      <th style="border: 1px solid #ddd; padding: 8px 12px; text-align: left;">提供資料</th>
+      {% for doc_name in doc_columns %}
+      <th style="border: 1px solid #ddd; padding: 8px 12px; text-align: left;">{{ doc_name }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in failed_table %}
+    <tr>
+      <td style="border: 1px solid #ddd; padding: 8px 12px; font-weight: bold;">{{ row.field_name }}</td>
+      <td style="border: 1px solid #ddd; padding: 8px 12px;">{{ row.provided_value }}</td>
+      {% for doc_value in row.doc_values %}
+      <td style="border: 1px solid #ddd; padding: 8px 12px;">{{ doc_value }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if failed_documents and failed_documents|length > 0 %}
+<p style="font-weight: bold; margin-top: 24px;">佐証文件提供：</p>
+<table style="border-collapse: collapse; margin: 10px 0; font-size: 14px;">
+  <thead>
+    <tr style="background-color: #f5f5f5;">
+      <th style="border: 1px solid #ddd; padding: 8px 16px; text-align: left;">文件</th>
+      <th style="border: 1px solid #ddd; padding: 8px 16px; text-align: center;">需提供</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for doc in failed_documents %}
+    <tr>
+      <td style="border: 1px solid #ddd; padding: 8px 16px;">{{ doc.name }}</td>
+      <td style="border: 1px solid #ddd; padding: 8px 16px; text-align: center;">{{ doc.check }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<p>Thanks and regards</p>
+
+<p>若有任何疑問再請聯繫告知，將盡速協助處理。</p>
+
 </body>
 </html>

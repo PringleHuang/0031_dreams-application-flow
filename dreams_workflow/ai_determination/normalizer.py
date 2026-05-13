@@ -142,16 +142,13 @@ def normalize_voltage(value: str) -> float | None:
         return None
     value = unicodedata.normalize("NFKC", value).strip().upper()
 
-    # Dual voltage format: take the first voltage
+    # Dual voltage format (e.g. "11.4/22.8kV"): cannot normalize to single value
+    # Return None to let comparison fall through to string comparison (will Fail)
     dual_match = re.match(
         r"^([\d.]+)\s*(KV|V)?\s*/\s*[\d.]+\s*(KV|V)?$", value
     )
     if dual_match:
-        num = float(dual_match.group(1))
-        unit = dual_match.group(2) or dual_match.group(3) or "V"
-        if unit == "KV":
-            num *= 1000
-        return _unify_low_voltage(num)
+        return None
 
     match = re.match(r"^([\d.]+)\s*(KV|V)?$", value)
     if not match:

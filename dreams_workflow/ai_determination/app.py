@@ -25,7 +25,6 @@ from dreams_workflow.ai_determination.bedrock_client import (
     BedrockInvocationError,
     build_extract_prompt,
     detect_media_type,
-    fix_dual_voltage,
     invoke_bedrock_extract,
     invoke_bedrock_normalize,
 )
@@ -469,13 +468,9 @@ def _compare_document_fields(
             ext_value = raw
             evidence = ""
 
-        # Fix dual voltage extraction errors
-        if (
-            ext_key in ("connection_voltage_volt", "demarcation_voltage_volt")
-            and ext_value
-            and evidence
-        ):
-            ext_value = fix_dual_voltage(str(ext_value), evidence)
+        # Dual voltage values (e.g. "11.4/22.8kV") are kept as-is
+        # to let comparison naturally Fail for human judgment
+        # (Previously fix_dual_voltage would pick one side, causing incorrect corrections)
 
         # Strip list elements
         if isinstance(ext_value, list):
@@ -588,37 +583,91 @@ def _handle_webhook_event(event: dict) -> dict:
         # Both 資訊補件 and 台電補件 trigger AI re-determination
         # The difference is in what happens after (handled by workflow_engine)
 
+    # For NEW_CONTRACT_FULL_QUESTIONNAIRE, verify case status is "待填問卷"
+    if event_type_str == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE.value:
+        from dreams_workflow.shared.models import CaseStatus as _CS
+        if case_status and case_status != _CS.PENDING_QUESTIONNAIRE.value:
+            log_operation(
+                logger,
+                case_id=resolved_case_id,
+                operation_type="ai_determination_status_mismatch",
+                message=f"Status mismatch: expected '待填問卷' but got '{case_status}', skipping AI determination",
+                level="warning",
+            )
+            # Send anomaly notification
+            try:
+                import boto3 as _boto3
+                _lc = _boto3.client("lambda")
+                _email_fn = os.environ.get("EMAIL_SERVICE_FUNCTION_NAME", "")
+                if _email_fn:
+                    _lc.invoke(
+                        FunctionName=_email_fn,
+                        InvocationType="Event",
+                        Payload=json.dumps({
+                            "email_type": "異常通知",
+                            "case_id": resolved_case_id,
+                            "recipient_email": "pringle.huang@gmail.com",
+                            "template_data": {
+                                "case_id": resolved_case_id,
+                                "dreams_apply_id": case_context.get("dreams_apply_id", ""),
+                                "anomaly_message": f"問卷回覆觸發但案件狀態不正確：預期「待填問卷」，實際「{case_status}」",
+                            },
+                        }, ensure_ascii=False).encode("utf-8"),
+                    )
+            except Exception as notify_err:
+                logger.warning(f"Failed to send anomaly notification: {notify_err}")
+
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Status mismatch, AI determination skipped",
+                    "expected_status": "待填問卷",
+                    "actual_status": case_status,
+                    "resolved_case_id": resolved_case_id,
+                }, ensure_ascii=False),
+            }
+
     # Fetch questionnaire data and documents from RAGIC
     from dreams_workflow.shared.ragic_client import CloudRagicClient
 
     try:
-        # The webhook payload already contains all questionnaire field values
-        # including attachment field values (format: '{fileKey}@{fileName}')
-        # We use the payload directly as questionnaire_data (like the reference project)
-        questionnaire_data = payload
+        # Determine data source based on event type
+        is_supplement = (event_type_str == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE.value)
 
-        # Download supporting documents directly from payload attachment fields
-        # (same approach as refer/0031_CreateNewDreams/processor/app.py)
-        ragic_client = CloudRagicClient()
-        try:
-            from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
+        if is_supplement:
+            # SUPPLEMENT FLOW:
+            # 1. Fetch original data & documents from case management form
+            # 2. Overlay supplement payload fields onto original data
+            # 3. Use merged data for AI determination
+            questionnaire_data, supporting_documents, document_metadata = (
+                _prepare_supplement_data(resolved_case_id, payload)
+            )
+        else:
+            # NORMAL FLOW (NEW_CONTRACT_FULL_QUESTIONNAIRE):
+            # Use webhook payload directly as questionnaire data
+            questionnaire_data = payload
 
-            doc_fields = get_document_attachment_fields()
-            attachment_field_ids = list(doc_fields.values())
+            # Download supporting documents directly from payload attachment fields
+            ragic_client = CloudRagicClient()
+            try:
+                from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
 
-            supporting_documents: list[tuple[str, bytes]] = []
-            document_metadata: list[dict] = []
-            for field_id in attachment_field_ids:
-                file_value = payload.get(field_id, "")
-                if not file_value or "@" not in str(file_value):
-                    continue
+                doc_fields = get_document_attachment_fields()
+                attachment_field_ids = list(doc_fields.values())
 
-                file_bytes, file_name = ragic_client._download_attachment(str(file_value))
-                if file_bytes is not None:
-                    supporting_documents.append((file_name, file_bytes))
-                    document_metadata.append({"field_id": field_id})
-        finally:
-            ragic_client.close()
+                supporting_documents: list[tuple[str, bytes]] = []
+                document_metadata: list[dict] = []
+                for field_id in attachment_field_ids:
+                    file_value = payload.get(field_id, "")
+                    if not file_value or "@" not in str(file_value):
+                        continue
+
+                    file_bytes, file_name = ragic_client._download_attachment(str(file_value))
+                    if file_bytes is not None:
+                        supporting_documents.append((file_name, file_bytes))
+                        document_metadata.append({"field_id": field_id})
+            finally:
+                ragic_client.close()
 
         log_operation(
             logger,
@@ -666,6 +715,7 @@ def _handle_webhook_event(event: dict) -> dict:
         _write_result_and_update_status(
             resolved_case_id, report, questionnaire_data, llm_extracted_values,
             field_comparisons=field_comparisons,
+            drop_empty=is_supplement,
         )
 
         return {
@@ -783,6 +833,7 @@ def _write_result_and_update_status(
     questionnaire_data: dict,
     llm_extracted_values: dict[str, dict[str, str]],
     field_comparisons: dict[str, list[dict]] | None = None,
+    drop_empty: bool = False,
 ) -> None:
     """Write all determination results to RAGIC case management form in a single POST.
 
@@ -802,6 +853,8 @@ def _write_result_and_update_status(
             (document_name → {questionnaire_field_id → extracted_value}).
         field_comparisons: Per-field comparison results per document
             (document_name → [comparison_dict, ...]).
+        drop_empty: If True, remove empty values from payload before writing.
+            Used for supplement re-determination to avoid clearing existing values.
 
     Requirements: 2.7, 2.8
     """
@@ -827,6 +880,10 @@ def _write_result_and_update_status(
     payload["ai_determination_result"] = json.dumps(
         report.to_dict(), ensure_ascii=False
     )
+
+    # Drop empty values if requested (supplement re-determination mode)
+    if drop_empty:
+        payload = {k: v for k, v in payload.items() if v}
 
     ragic_client = CloudRagicClient()
     try:
@@ -948,3 +1005,120 @@ def _build_field_results(
                     )
 
     return field_results
+
+
+def _prepare_supplement_data(
+    case_id: str, supplement_payload: dict
+) -> tuple[dict, list[tuple[str, bytes]], list[dict]]:
+    """Prepare merged data for supplement questionnaire AI re-determination.
+
+    Flow:
+    1. Fetch original case record from case management form (business-process2/2)
+    2. Convert supplement payload fields to original questionnaire field IDs
+    3. Overlay non-empty supplement values onto original data
+    4. Download documents (prefer supplement's new uploads, fallback to original)
+
+    Args:
+        case_id: The case management form record ID.
+        supplement_payload: The supplement questionnaire webhook payload.
+
+    Returns:
+        Tuple of (merged_questionnaire_data, supporting_documents, document_metadata).
+    """
+    from dreams_workflow.ai_determination.field_mapping_loader import load_field_mapping
+    from dreams_workflow.shared.ragic_client import CloudRagicClient
+    from dreams_workflow.shared.ragic_fields_config import get_document_attachment_fields
+
+    config = load_field_mapping()
+    supplement_to_q_mapping = config.get("supplement_to_questionnaire_mapping", {})
+    supplement_to_case_mapping = config.get("supplement_to_case_mapping", {})
+
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="supplement_prepare_start",
+        message=f"Preparing supplement data: fetching case record {case_id}",
+    )
+
+    # Step 1: Fetch original case record from RAGIC
+    ragic_client = CloudRagicClient()
+    try:
+        original_record = ragic_client.get_case_record(case_id)
+    except Exception as e:
+        log_operation(
+            logger,
+            case_id=case_id,
+            operation_type="supplement_fetch_error",
+            message=f"Failed to fetch case record: {e}",
+            level="error",
+        )
+        raise
+
+    # Step 2: Build merged questionnaire data
+    # Start with original record (case management form field IDs)
+    # The AI comparison uses questionnaire field IDs (1014xxx), so we need to
+    # reverse-map case management fields back to questionnaire field IDs
+    from dreams_workflow.ai_determination.field_mapping_loader import get_direct_mapping
+    direct_map = get_direct_mapping()  # questionnaire_field_id → case_field_id
+    reverse_direct_map = {v: k for k, v in direct_map.items()}  # case_field_id → questionnaire_field_id
+
+    # Build questionnaire_data from original case record
+    merged_data: dict = {}
+    for case_field_id, value in original_record.items():
+        q_field_id = reverse_direct_map.get(case_field_id)
+        if q_field_id and value:
+            merged_data[q_field_id] = value
+        # Also keep the case field ID version for document download
+        merged_data[case_field_id] = value
+
+    # Step 3: Overlay supplement payload values (convert to questionnaire field IDs)
+    overlay_count = 0
+    for supp_field_id, q_field_id in supplement_to_q_mapping.items():
+        supp_value = supplement_payload.get(supp_field_id, "")
+        if supp_value:  # Only overlay non-empty values
+            merged_data[q_field_id] = supp_value
+            overlay_count += 1
+
+    # Also overlay into case management field IDs (for document download)
+    for supp_field_id, case_field_id in supplement_to_case_mapping.items():
+        supp_value = supplement_payload.get(supp_field_id, "")
+        if supp_value:
+            merged_data[case_field_id] = supp_value
+
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="supplement_data_merged",
+        message=f"Merged supplement data: {overlay_count} fields overlaid from supplement payload",
+    )
+
+    # Step 4: Download documents
+    # Use document attachment fields from the merged data
+    # (supplement's new uploads override original if present)
+    doc_fields = get_document_attachment_fields()
+    attachment_field_ids = list(doc_fields.values())
+
+    supporting_documents: list[tuple[str, bytes]] = []
+    document_metadata: list[dict] = []
+
+    try:
+        for field_id in attachment_field_ids:
+            file_value = merged_data.get(field_id, "")
+            if not file_value or "@" not in str(file_value):
+                continue
+
+            file_bytes, file_name = ragic_client._download_attachment(str(file_value))
+            if file_bytes is not None:
+                supporting_documents.append((file_name, file_bytes))
+                document_metadata.append({"field_id": field_id})
+    finally:
+        ragic_client.close()
+
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="supplement_docs_downloaded",
+        message=f"Downloaded {len(supporting_documents)} documents for re-determination",
+    )
+
+    return merged_data, supporting_documents, document_metadata

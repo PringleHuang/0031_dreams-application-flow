@@ -379,17 +379,37 @@ class CloudRagicClient:
         questionnaire (work-survey/7) or supplement (work-survey/9) webhooks,
         which don't include case status in their payload.
 
+        RAGIC API returns format: {"26": {"1015456": "...", ...}}
+        This method extracts the inner record dict.
+
         Args:
             case_id: The case record ID (ragicId) in RAGIC.
 
         Returns:
-            Full record dict with all field values.
+            Inner record dict with all field values (field_id → value).
 
         Raises:
             RagicCommunicationError: On API failure.
         """
         url = self._build_url(self.case_form_path, self.case_form_index, case_id)
-        return self._get(url)
+        response = self._get(url)
+
+        # RAGIC returns {"<record_id>": {field_data}} for single record queries
+        # Extract the inner record dict
+        if case_id in response:
+            return response[case_id]
+
+        # If response is already flat (field_id → value), return as-is
+        # This handles cases where RAGIC returns the record directly
+        if response and not any(isinstance(v, dict) for v in response.values()):
+            return response
+
+        # Try to get the first (and only) record from the response
+        for key, value in response.items():
+            if isinstance(value, dict):
+                return value
+
+        return response
 
     @retry_ragic
     def update_case_status(self, case_id: str, status: str) -> None:

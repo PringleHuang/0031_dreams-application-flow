@@ -173,6 +173,7 @@ Resources:
           BEDROCK_MODEL_ID: jp.anthropic.claude-sonnet-4-6
           BEDROCK_REGION: ap-northeast-1
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_SERVICE_FUNCTION_NAME: !Ref EmailServiceFunction
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -182,6 +183,8 @@ Resources:
               Resource: "*"
         - S3ReadPolicy:
             BucketName: !Ref EmailStorageBucket
+        - LambdaInvokePolicy:
+            FunctionName: !Ref EmailServiceFunction
         - CloudWatchLogsFullAccess
 
   AiDeterminationLogGroup:

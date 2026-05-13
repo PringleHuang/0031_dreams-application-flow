@@ -38,10 +38,22 @@ def resolve_ragic_id_from_payload(payload: dict) -> str | None:
     cm_fields = get_case_management_fields()
     q_form_fields = get_questionnaire_form_fields()
 
+    # Get supplement form fields (may not exist in older configs)
+    try:
+        from dreams_workflow.shared.ragic_fields_config import _load_config
+        supplement_fields = _load_config().get("supplement_form", {})
+    except Exception:
+        supplement_fields = {}
+
     # Try multiple field IDs for DREAMS_APPLY_ID
+    # Different forms use different field IDs:
+    # - Questionnaire form (work-survey/7): 1016284
+    # - Supplement form (work-survey/9): 1016649
+    # - Case management form (business-process2/2): 1016557
     dreams_apply_id = ""
     for field_id in [
         q_form_fields.get("dreams_apply_id", "1016284"),   # questionnaire form
+        supplement_fields.get("dreams_apply_id", "1016649"),  # supplement form
         cm_fields.get("dreams_apply_id", "1016557"),       # case management form
         "dreams_apply_id",                                  # logical name fallback
     ]:

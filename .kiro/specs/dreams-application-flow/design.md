@@ -228,6 +228,37 @@ def resolve_case_context(payload: dict) -> dict:
 - A=審訖圖、B=細部協商、C=縣府同意備案函文、D=購售電契約、E=併聯審查意見書、F=案場詳細地址、G=電號、H=裝置量、I=案場類型、J=縣府同意備案函文編號、K=售電方式、L=併聯方式/併聯點型式/併聯點電壓（群組）、M=責任分界點型式/責任分界點電壓（群組）、N=逆變器匯總
 - **群組邏輯**：併聯方式、併聯點型式、併聯點電壓三項為同一群組（代碼 L），任一項 Fail 則三項一起補件；責任分界點型式、責任分界點電壓兩項為同一群組（代碼 M），任一項 Fail 則兩項一起補件
 
+**補件通知郵件設計（2026-05-12 實測通過）**：
+- 主旨：`【DREAMS補件】_{DREAMS_APPLY_ID}_案場資訊釐清`
+- 郵件內容分為兩個表格：
+  - **資料比對表**（代碼 F~N）：僅列 Fail 的欄位項目，欄位包含「資料欄位」「提供資料」及各佐證文件的 LLM 提取值。文件欄位按有值數量排序（資料多的排前面）。LLM 提取值自動去除 `[依據]` 後綴
+  - **佐証文件提供表**（代碼 A~E）：列出 5 份佐證文件，Fail 的打 V 標記。維持固定順序（審訖圖→細部協商→縣府同意備案函文→購售電契約→併聯審查意見書）
+- 補件問卷連結格式：`https://ap13.ragic.com/solarcs/work-survey/9?ragic-web-embed=true&webaction=form&ver=new&version=2&pfv1016649={DREAMS_APPLY_ID}&pfv1016652={案場名稱}&pfv1016697={補件代碼}`
+  - pfv 參數對應：`pfv{補件問卷欄位ID}` = 案件管理表欄位值
+  - 補件代碼由程式邏輯產生（`|` 分隔，如 `A|F|L`）
+  - 其他 pfv 參數可在 `email_config.yaml` 的 `dynamic_params` 中新增
+- 資料來源：所有欄位值直接從 Webhook payload 讀取（payload 包含案件管理表的所有欄位值）
+
+**補件問卷回覆後 AI 重新判定流程**：
+- 觸發：客戶填寫補件問卷（work-survey/9）→ Webhook → `SUPPLEMENTARY_QUESTIONNAIRE`
+- 流程：
+  1. 從 payload 的 DREAMS_APPLY_ID（欄位 `1016649`）解析案件管理表 ragicId
+  2. 從案件管理表（business-process2/2/{ragicId}）讀取**原有資料 & 文件**
+  3. 將原有資料轉換為問卷欄位格式（reverse direct_mapping）
+  4. 用補件問卷 payload 的新值**覆蓋**對應欄位（非空值才覆蓋）
+  5. 用合併後的資料下載文件（新上傳的文件覆蓋舊的）
+  6. 執行 AI 判定（與首次判定相同邏輯）
+  7. 所有結果回寫案件管理表 + 狀態更新為「待人工確認」
+- 欄位映射定義於 `field_mapping.yaml`：
+  - `supplement_to_case_mapping`：補件問卷欄位 ID → 案件管理表欄位 ID
+  - `supplement_to_questionnaire_mapping`：補件問卷欄位 ID → 原始問卷欄位 ID（供 AI 判定使用）
+- ⚠️ **TODO**：依案件狀態區分寫入目標欄位：
+  - 狀態 = 「資訊補件」→ 判讀結果寫入 `questionnaire_result_mapping` 欄位
+  - 狀態 = 「台電補件」→ 判讀結果寫入 `taipower_result_mapping` 欄位
+  - 若狀態不是上述兩者 → 發異常通知，不執行判定
+- ⚠️ **TODO**：DREAMS CreatePlantApplication API 回傳格式確認 — 當 `IsSuccess=true` 但 `Data.id=0` 時，應視為電號不存在（等 API 作者修正回傳格式）
+- **群組邏輯**：併聯方式、併聯點型式、併聯點電壓三項為同一群組（代碼 L），任一項 Fail 則三項一起補件；責任分界點型式、責任分界點電壓兩項為同一群組（代碼 M），任一項 Fail 則兩項一起補件
+
 **DREAMS_APPLY_ID 解析規則**：
 - Webhook payload 中包含 DREAMS_APPLY_ID 欄位，但**不同表單使用不同的欄位 ID**：
   - 案件管理表（business-process2/2）：欄位 ID = `1016557`（定義於 `ragic_fields.yaml` 的 `case_management.dreams_apply_id`）

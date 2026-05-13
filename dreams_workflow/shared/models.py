@@ -43,9 +43,11 @@ class WebhookEventType(str, Enum):
 class EmailType(str, Enum):
     """郵件類型列舉"""
 
+    ANOMALY_NOTIFICATION = "異常通知"
     QUESTIONNAIRE_NOTIFICATION = "問卷通知"
     SUPPLEMENT_NOTIFICATION = "補件通知"
     TAIPOWER_APPLICATION = "台電審核申請"
+    TAIPOWER_ELECTRICITY_REQUEST = "台電電號新增"
     TAIPOWER_SUPPLEMENT = "台電補件通知"
     APPROVAL_NOTIFICATION = "核准通知"
     ACCOUNT_ACTIVATION = "帳號啟用通知"
