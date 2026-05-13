@@ -70,24 +70,18 @@ flowchart TD
 <!-- Tab 1 -->
 <div class="diagram-card" id="tab-1">
 <h2>階段一 - 問卷續約/新約分流</h2>
-<div class="desc">客戶收到問卷通知後, 問卷第一步詢問是否為續約案件。續約僅填電號走簡化流程, 新約需完整資料。<br><b>分類邏輯</b>：webhook_handler 用欄位 1016556（DREAMS流程）判斷：「案場續約」→ RENEWAL_QUESTIONNAIRE，其他 → NEW_CONTRACT_FULL_QUESTIONNAIRE。<br><b>狀態驗證</b>：下游 Lambda 先查案件管理表確認狀態=「待填問卷」，若不是則發異常通知信給負責人，不進行後續處理。<br><b>✓ 2026-05-11 新約實測通過</b>：問卷 Webhook → 分類 → AI 判定。<br><b>待測試</b>：續約分流 → 狀態更新為「續約處理」。</div>
+<div class="desc">客戶收到問卷通知後填寫問卷送出。系統先驗證案件狀態是否為「待填問卷」，再依欄位 1016556（DREAMS流程）分流。<br><b>流程</b>：Webhook → 狀態驗證 → 分流（新設案場/案場續約）。<br><b>✓ 2026-05-12 全部實測通過</b>：新設案場→AI判定、案場續約→續約處理、狀態不正確→異常通知。</div>
 <div class="mermaid">
 flowchart TD
-    A["案件狀態 - 待填問卷"]:::done --> B["客戶開啟 RAGIC 問卷\n（DREAMS案場申請單 work-survey/7）"]:::done
-    B --> C{"欄位1016556 DREAMS流程"}:::done
-    C -->|案場續約| D["客戶僅填寫電號"]:::done
-    D --> E["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
-    E --> F["webhook_handler 分類\n→ 欄位1016556='案場續約'\n→ RENEWAL_QUESTIONNAIRE"]:::done
-    F --> F1{"查案件管理表\n狀態=待填問卷?"}:::done
-    F1 -->|否| F1E["發異常通知信給負責人\n（狀態不正確）"]:::done
-    F1 -->|是| F2["workflow_engine\n案件狀態 → 續約處理"]:::todo
+    A["案件狀態 - 待填問卷"]:::done --> B["客戶開啟 RAGIC 問卷\n（DREAMS案場申請單 work-survey/7）\n填寫完成後送出"]:::done
+    B --> B2["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
+    B2 --> B3["webhook_handler 分類\n依欄位1016556判斷事件類型"]:::done
+    B3 --> V{"查案件管理表\n狀態=待填問卷?"}:::done
+    V -->|否| VE["發異常通知信給負責人\n【DREAMS異常通知】\n（狀態不正確，不處理）"]:::done
+    V -->|是| C{"欄位1016556\nDREAMS流程"}:::done
+    C -->|案場續約| F2["workflow_engine\n案件狀態 → 續約處理"]:::done
     F2 --> H(["進入續約簡化流程 Tab五"])
-    C -->|新設案場| I["客戶填寫完整資料 + 上傳5份佐證文件"]:::done
-    I --> J["RAGIC Webhook 觸發\n（path=/work-survey, sheetIndex=7）"]:::done
-    J --> K["webhook_handler 分類\n→ NEW_CONTRACT_FULL_QUESTIONNAIRE"]:::done
-    K --> K1{"查案件管理表\n狀態=待填問卷?"}:::done
-    K1 -->|否| K1E["發異常通知信給負責人"]:::done
-    K1 -->|是| K2["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → AI 判定"]:::done
+    C -->|新設案場| K2["ai_determination\n從 DREAMS_APPLY_ID 解析 ragicId\n→ AI 判定流程"]:::done
     K2 --> L(["進入 AI 判定流程 Tab二"])
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
