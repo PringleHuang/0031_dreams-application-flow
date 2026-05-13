@@ -41,7 +41,7 @@ VALID_TRANSITIONS: dict[CaseStatus, list[CaseStatus]] = {
         CaseStatus.TAIPOWER_SUPPLEMENT,  # 人工確認需補件
     ],
     CaseStatus.TAIPOWER_SUPPLEMENT: [
-        CaseStatus.TAIPOWER_REVIEW,  # 補件完成重新申請
+        CaseStatus.PENDING_MANUAL_CONFIRM,  # 補件AI判讀完成→待人工確認
     ],
     CaseStatus.INSTALLATION_PHASE: [
         CaseStatus.ONLINE_COMPLETED,  # 自主檢查通過

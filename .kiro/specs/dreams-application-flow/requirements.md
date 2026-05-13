@@ -124,7 +124,7 @@
 1. WHEN 公司聯絡人在「發送前人工確認」狀態將案件改為「台電補件」，THE Cloud_RAGIC SHALL 透過 Webhook 觸發台電補件流程
 2. WHEN 案件狀態變更為「台電補件」，THE Workflow_System SHALL 讀取「台電審核結果」欄位中值為 "Fail" 或 "Yes" 的項目，將對應的「補件參數對應」值（A~N，含群組邏輯）匯總為 `|` 分隔字串
 3. THE Workflow_System SHALL 透過 AWS SES 發送台電補件通知電子郵件給客戶，郵件內容包含駁回原因說明與補件問卷連結（含 pfv 預填值：補件參數、出貨編號、DREAMS_APPLY_ID）
-4. WHEN 客戶完成台電補件問卷填寫，THE Workflow_System SHALL 重新進入台電站點申請流程（回到需求 5 的流程）
+4. WHEN 客戶完成台電補件問卷填寫，THE AI_Determination_Service SHALL 確認案件狀態為「台電補件」，將判讀結果寫入「台電審核結果」欄位（`taipower_result_mapping`），並將案件狀態更新為「待人工確認」，由公司聯絡人在 RAGIC 檢視後手動改狀態為「台電審核」重新送件
 
 ### 需求 8：安裝階段通知與自主檢查
 

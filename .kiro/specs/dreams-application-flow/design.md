@@ -89,7 +89,7 @@ stateDiagram-v2
     台電審核 --> 發送前人工確認: 台電回覆後
     發送前人工確認 --> 安裝階段: 人工確認核准
     發送前人工確認 --> 台電補件: 人工確認需補件
-    台電補件 --> 台電審核: 補件完成重新申請
+    台電補件 --> 待人工確認: 補件AI判讀完成
     安裝階段 --> 完成上線: 自主檢查通過
     完成上線 --> 已結案: 資料同步完成
 ```
@@ -426,7 +426,7 @@ VALID_TRANSITIONS: dict[CaseStatus, list[CaseStatus]] = {
         CaseStatus.TAIPOWER_SUPPLEMENT       # 人工確認需補件
     ],
     CaseStatus.TAIPOWER_SUPPLEMENT: [
-        CaseStatus.TAIPOWER_REVIEW           # 補件完成重新申請
+        CaseStatus.PENDING_MANUAL_CONFIRM    # 補件AI判讀完成→待人工確認
     ],
     CaseStatus.INSTALLATION_PHASE: [
         CaseStatus.ONLINE_COMPLETED          # 自主檢查通過
