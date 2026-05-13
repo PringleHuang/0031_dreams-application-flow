@@ -154,24 +154,18 @@ flowchart TD
 <!-- Tab 4 -->
 <div class="diagram-card" id="tab-4">
 <h2>新約流程 - 安裝和結案</h2>
-<div class="desc">人工確認核准後通知客戶安裝資料收集器, 客服協助 DREAMS 自主檢查與上線, 最後同步至 SunVeillance 並結案。<br><b>狀態</b>：程式碼框架已完成，需整合 DREAMS API 和 SunVeillance API 後實測。</div>
+<div class="desc">人工確認核准後, 系統發送核准通知信（【DREAMS核可】）給客戶, 含自主檢查清單附件。後續安裝、自主檢查、上線等由客服透過通訊軟體線上處理, 不涉及本專案程式開發。<br><b>程式負責範圍</b>：僅「發送核准通知 + 自主檢查清單」+ 最終「發送帳號開通通知」。</div>
 <div class="mermaid">
 flowchart TD
-    A["案件狀態 - 安裝階段"]:::todo --> B["SES 發送核准通知 + 自主檢查清單"]:::todo
-    B --> C["客戶安裝資料收集器"]:::todo
-    C --> D["客戶聯繫客服"]:::todo
-    D --> E["客服執行 DREAMS 自主檢查"]:::todo
-    E --> F{"自主檢查結果"}:::todo
-    F -->|未通過| G["通知客戶問題項目"]:::todo
-    G --> H["客戶解決問題"]:::todo
-    H --> E
-    F -->|通過| I["執行 DREAMS 上線程序"]:::todo
-    I --> J["案件狀態 → 完成上線"]:::todo
-    J --> K["站點資料寫入 SunVeillance"]:::todo
-    K --> L["SES 發送帳號啟用通知"]:::todo
-    L --> M["寫入 DREAMS 到期資訊"]:::todo
-    M --> N["案件狀態 → 已結案"]:::todo
+    A["案件狀態 - 安裝階段\n（人工在RAGIC改狀態觸發）"]:::todo --> B["SES 發送核准通知\n【DREAMS核可】+ 自主檢查清單附件"]:::todo
+    B --> C["客戶安裝資料收集器"]:::manual
+    C --> D["客戶透過LINE客服進線"]:::manual
+    D --> E["客服線上協助 DREAMS 自主檢查與上線"]:::manual
+    E --> F["案件狀態 → 完成上線\n（客服在RAGIC手動改狀態）"]:::manual
+    F --> G["SES 發送帳號開通通知\n【DREAMS帳號開通】"]:::todo
+    G --> H["案件狀態 → 已結案"]:::todo
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
+    classDef manual fill:#f5f5f5,stroke:#9e9e9e,color:#616161
 </div>
 </div>
 
