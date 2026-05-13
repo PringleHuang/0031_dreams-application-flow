@@ -124,27 +124,29 @@ flowchart TD
 <!-- Tab 3 -->
 <div class="diagram-card" id="tab-3">
 <h2>新約流程 - 台電審核階段</h2>
-<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>✓ 2026-05-12 台電申請實測通過</b>：Webhook 觸發 → 呼叫 GCP CreatePlantApplication API → 成功取得案號 → 下載 PDF（450KB）→ 案號寫入 RAGIC → 發送審核申請信。<br><b>⚠️ 待確認</b>：API 回傳 IsSuccess=true 但 id=0 時的判斷邏輯（等 API 作者修正回傳格式）。</div>
+<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>✓ 2026-05-12 台電申請實測通過</b>：Webhook 觸發 → 呼叫 GCP CreatePlantApplication API → 成功取得案號 → 下載 PDF（450KB）→ 案號寫入 RAGIC → 發送審核申請信。<br><b>✓ 2026-05-13 API 回傳格式已修正</b>：IsSuccess=false 明確回傳錯誤原因（電號已存在/欄位驗證失敗）。</div>
 <div class="mermaid">
 flowchart TD
-    A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS CreatePlantApplication API\n（GCP http://35.236.137.19）\n電號去除'-', 欄位值轉換"]:::done
+    A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS CreatePlantApplication API\n（GCP http://35.236.137.19/DREAMS_Service_TP）\n電號自動處理, 欄位值轉換"]:::done
     B --> C{"API 回應"}:::done
-    C -->|無電號/id=0| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號申請】_{ID}/案場/電號"]:::done
-    D --> E["等待電號建立完成"]:::todo
-    C -->|成功: id>0| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
+    C -->|IsSuccess=false\n電號不存在| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號新增】_{ID}/案場/電號"]:::done
+    D --> E["台電以郵件通知電號建立完成"]:::todo
+    E --> E2["SES 接收通知 → mail_receiver"]:::todo
+    E2 --> B
+    C -->|IsSuccess=true\nid>0, status=wait-approval| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
     F --> G["SES 發送審核申請信給台電\n主旨:【DREAMS審核】_{ID}/案場/電號\n含佐證文件 + 申請資料 PDF"]:::done
     G --> H["台電回覆審核結果郵件"]:::todo
-    H --> I["SES 接收 + Lambda 解析"]:::todo
+    H --> I["SES 接收（dreams-automation@enetek.net）\n→ S3 incoming/ → mail_receiver Lambda"]:::done
     I --> J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::todo
     J --> K["語意分析結果寫入 RAGIC\n狀態 → 發送前人工確認"]:::todo
     K --> L["公司聯絡人在 RAGIC 檢視台電審核結果"]:::todo
     L --> M{"人工在 RAGIC 手動改狀態"}:::todo
     M -->|改為 安裝階段| N(["進入安裝階段 Tab四"])
     M -->|改為 台電補件| O["讀取台電審核結果 Fail/Yes 欄位\n匯總補件參數代碼 A~N（含群組邏輯）"]:::todo
-    O --> P["SES 發送台電補件通知\n連結: work-survey/9 + pfv補件參數(以|分隔)"]:::todo
+    O --> P["SES 發送台電補件通知\n【DREAMS台電補件】_{ID}/案場\n連結: work-survey/9 + pfv補件參數"]:::todo
     P --> Q["客戶填寫台電補件問卷\n（work-survey/9）"]:::todo
     Q --> Q2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]:::todo
-    Q2 --> Q3["ai_determination 從 DREAMS_APPLY_ID\n解析 ragicId → 查案件管理表\n確認狀態=台電補件"]:::todo
+    Q2 --> Q3["ai_determination:\n確認狀態=台電補件\n判讀結果寫入 taipower_result 欄位"]:::todo
     Q3 -->|重新申請| A
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
