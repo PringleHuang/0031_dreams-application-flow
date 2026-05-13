@@ -144,8 +144,8 @@ flowchart TD
     O --> P["SES 發送台電補件通知\n【DREAMS台電補件】_{ID}/案場\n連結: work-survey/9 + pfv補件參數"]:::todo
     P --> Q["客戶填寫台電補件問卷\n（work-survey/9）"]:::todo
     Q --> Q2["RAGIC Webhook 觸發\n（path=/work-survey, sheet=9）"]:::todo
-    Q2 --> Q3["ai_determination:\n確認狀態=台電補件\n判讀結果寫入 taipower_result 欄位\n狀態 → 發送前人工確認"]:::todo
-    Q3 --> K
+    Q2 --> Q3["ai_determination:\n確認狀態=台電補件\n判讀結果寫入 taipower_result 欄位\n狀態 → 待人工確認"]:::todo
+    Q3 --> Q4(["回到 Tab二「人工在 RAGIC 手動改狀態」"])
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef todo fill:#fff3e0,stroke:#f57c00,color:#e65100
 </div>
@@ -217,7 +217,7 @@ stateDiagram-v2
     TaipowerReview --> PreSendConfirm : 台電回覆後
     PreSendConfirm --> Installation : 人工確認核准
     PreSendConfirm --> TaipowerSupp : 人工確認需補件
-    TaipowerSupp --> PreSendConfirm : 補件AI判讀完成→人工確認
+    TaipowerSupp --> ManualConfirm : 補件AI判讀完成→待人工確認
     Installation --> Online : 自主檢查通過
     Online --> Closed : 資料同步完成
 
