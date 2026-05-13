@@ -133,7 +133,9 @@ flowchart TD
     F --> G["SES 發送審核申請信給台電\n主旨:【DREAMS審核】_{ID}/案場/電號\n含佐證文件 + 申請資料 PDF"]:::done
     G --> H["台電回覆審核結果郵件"]:::todo
     H --> I["SES 接收（dreams-automation@enetek.net）\n→ S3 incoming/ → mail_receiver Lambda"]:::done
-    I --> J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::todo
+    I --> I2{"確認案件狀態\n=台電審核?"}:::todo
+    I2 -->|否| I2E["發異常通知信"]:::todo
+    I2 -->|是| J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::todo
     J --> K["語意分析結果寫入 RAGIC\n狀態 → 發送前人工確認"]:::todo
     K --> L["公司聯絡人在 RAGIC 檢視台電審核結果"]:::todo
     L --> M{"人工在 RAGIC 手動改狀態"}:::todo
