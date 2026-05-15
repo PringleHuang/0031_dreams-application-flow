@@ -271,17 +271,31 @@ Resources:
       CodeUri: .
       Handler: dreams_workflow.mail_receiver.app.lambda_handler
       MemorySize: 256
-      Timeout: 30
+      Timeout: 60
       Environment:
         Variables:
           RAGIC_API_KEY: !Ref RagicApiKey
           AI_DETERMINATION_FUNCTION_NAME: !Ref AiDeterminationFunction
+          WORKFLOW_ENGINE_FUNCTION_NAME: !Ref WorkflowEngineFunction
+          EMAIL_SERVICE_FUNCTION_NAME: !Ref EmailServiceFunction
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          BEDROCK_MODEL_ID: jp.anthropic.claude-sonnet-4-6
+          BEDROCK_REGION: ap-northeast-1
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref EmailStorageBucket
         - LambdaInvokePolicy:
             FunctionName: !Ref AiDeterminationFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref WorkflowEngineFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref EmailServiceFunction
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
         - CloudWatchLogsFullAccess
 
   MailReceiverLogGroup:

@@ -142,7 +142,7 @@ def handle_renewal_complete(case_id: str, payload: dict) -> dict:
             case_id=case_id,
             new_status=CaseStatus.CASE_CLOSED,
             reason="續約完成，案件結案",
-            current_status=CaseStatus.RENEWAL_PROCESSING,
+            current_status=CaseStatus.PENDING_QUESTIONNAIRE,
             store=ragic_client,
         )
     finally:

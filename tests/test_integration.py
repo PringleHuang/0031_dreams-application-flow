@@ -81,11 +81,17 @@ class TestWebhookLambdaTriggerChain:
             event = {
                 "headers": {},
                 "body": json.dumps({
-                    "form_path": "business-process2/2",
-                    "action": "create",
-                    "case_id": "INT-001",
-                    "customer_email": "customer@example.com",
-                    "case_status": "新開案件",
+                    "data": [{
+                        "_ragicId": 1,
+                        "1015456": "新開案件",
+                        "1016558": "customer@example.com",
+                        "1016557": "TEST-INT-001-1",
+                        "1015021": "INT-001",
+                    }],
+                    "apname": "solarcs",
+                    "path": "/business-process2",
+                    "sheetIndex": 2,
+                    "eventType": "create",
                 }),
                 "isBase64Encoded": False,
             }
@@ -105,8 +111,7 @@ class TestWebhookLambdaTriggerChain:
             # Verify payload passed to workflow_engine
             invoke_payload = json.loads(call_kwargs["Payload"].decode("utf-8"))
             assert invoke_payload["event_type"] == "NEW_CASE_CREATED"
-            assert invoke_payload["case_id"] == "INT-001"
-            assert invoke_payload["payload"]["customer_email"] == "customer@example.com"
+            assert invoke_payload["case_id"] == "1"
 
     def test_new_contract_questionnaire_invokes_ai_determination(self):
         """Webhook with new contract questionnaire invokes ai_determination Lambda."""
@@ -128,10 +133,16 @@ class TestWebhookLambdaTriggerChain:
             event = {
                 "headers": {},
                 "body": json.dumps({
-                    "form_path": "work-survey/7",
-                    "case_type": "新約",
-                    "case_id": "INT-002",
-                    "1016557": "DREAMS-INT-002",
+                    "data": [{
+                        "_ragicId": 100,
+                        "1015022": "INT-002",
+                        "1016284": "DREAMS-INT-002",
+                        "1016556": "新設案場",
+                    }],
+                    "apname": "solarcs",
+                    "path": "/work-survey",
+                    "sheetIndex": 7,
+                    "eventType": "create",
                 }),
                 "isBase64Encoded": False,
             }
@@ -165,9 +176,16 @@ class TestWebhookLambdaTriggerChain:
             event = {
                 "headers": {},
                 "body": json.dumps({
-                    "form_path": "work-survey/7",
-                    "case_type": "續約",
-                    "case_id": "INT-003",
+                    "data": [{
+                        "_ragicId": 101,
+                        "1015022": "INT-003",
+                        "1016284": "DREAMS-INT-003",
+                        "1016556": "案場續約",
+                    }],
+                    "apname": "solarcs",
+                    "path": "/work-survey",
+                    "sheetIndex": 7,
+                    "eventType": "create",
                 }),
                 "isBase64Encoded": False,
             }
@@ -201,10 +219,17 @@ class TestWebhookLambdaTriggerChain:
             event = {
                 "headers": {},
                 "body": json.dumps({
-                    "form_path": "business-process2/2",
-                    "action": "update",
-                    "case_id": "INT-004",
-                    "case_status": "台電審核",
+                    "data": [{
+                        "_ragicId": 4,
+                        "1015456": "台電審核",
+                        "1016557": "TEST-INT-004-4",
+                        "1015021": "INT-004",
+                    }],
+                    "apname": "solarcs",
+                    "path": "/business-process2",
+                    "sheetIndex": 2,
+                    "eventType": "update",
+                    "changedFields": {"4": [1015456]},
                 }),
                 "isBase64Encoded": False,
             }
@@ -237,57 +262,60 @@ class TestSESEmailReceiptChain:
             CreateBucketConfiguration={"LocationConstraint": "ap-northeast-1"},
         )
 
-        # Build a raw email from "Taipower"
-        raw_email = MIMEText("本案核准通過，請進行後續安裝作業。", "plain", "utf-8")
+        # Build a raw email from an allowed sender with DREAMS審核 subject format
+        # Email body contains "已通過審核" keyword to trigger the "approved" classification
+        raw_email = MIMEText("本案已通過審核，請進行後續安裝作業。", "plain", "utf-8")
         raw_email["From"] = "taipower@taipower.com.tw"
         raw_email["To"] = "dreams-reply@company.com"
-        raw_email["Subject"] = "Re: 台電站點申請 - CASE-100"
+        raw_email["Subject"] = "Re: 【DREAMS審核】_TEST-INT-100/案場_測試案場/電號12345678901"
         raw_email["Message-ID"] = "<msg-ses-001@taipower.com.tw>"
         raw_email["Date"] = "Mon, 01 Jun 2026 09:00:00 +0800"
 
-        # Store in S3 (simulating SES receipt rule)
+        # Store in S3 (simulating SES receipt rule - uses "incoming/{messageId}" path)
         s3_client.put_object(
             Bucket="test-ses-email-bucket",
-            Key="emails/msg-ses-001",
+            Key="incoming/msg-ses-001",
             Body=raw_email.as_bytes(),
         )
 
-        # Mock the Lambda client for AI determination invocation
-        mock_lambda = MagicMock()
-        mock_lambda.invoke.return_value = {
-            "StatusCode": 200,
-            "Payload": MagicMock(
-                read=MagicMock(return_value=json.dumps({
-                    "statusCode": 200,
-                    "body": json.dumps({
-                        "category": "approved",
-                        "field_results": {},
-                        "rejection_reason_summary": "",
-                    }),
-                }).encode("utf-8"))
-            ),
+        # Mock mail config with allowed sender and subject patterns
+        mock_mail_config = {
+            "allowed_senders": ["taipower@taipower.com.tw"],
+            "subject_patterns": [
+                r"【DREAMS[^】]*】[_\s]*([A-Za-z0-9]+-\d+)",
+                r"([A-Za-z0-9]+-\d+)",
+            ],
+            "email_classification": {
+                "electricity_number_created": {
+                    "keywords": ["電號已手動新增", "請您再嘗試申請"],
+                },
+                "approved": {
+                    "keywords": ["已通過審核", "案場已通過審核"],
+                },
+                "rejected": {
+                    "keywords": ["未通過審核", "案場未通過審核"],
+                },
+            },
         }
 
-        # Mock RAGIC client for status update
-        mock_ragic = MagicMock()
-        mock_ragic.update_case_record = MagicMock()
-        mock_ragic.close = MagicMock()
+        # Mock RAGIC client for status verification and update
+        mock_ragic_instance = MagicMock()
+        mock_ragic_instance.get_case_record.return_value = {"1015456": "台電審核"}
+        mock_ragic_instance.update_case_record = MagicMock()
+        mock_ragic_instance.close = MagicMock()
 
         with patch(
             "dreams_workflow.mail_receiver.app._get_s3_client",
             return_value=s3_client,
         ), patch(
-            "dreams_workflow.mail_receiver.app._get_lambda_client",
-            return_value=mock_lambda,
+            "dreams_workflow.mail_receiver.app._get_mail_config",
+            return_value=mock_mail_config,
         ), patch(
             "dreams_workflow.mail_receiver.app.S3_BUCKET",
             "test-ses-email-bucket",
         ), patch(
-            "dreams_workflow.mail_receiver.app.AI_DETERMINATION_FUNCTION",
-            "test-ai-determination",
-        ), patch(
             "dreams_workflow.shared.ragic_client.CloudRagicClient",
-            return_value=mock_ragic,
+            return_value=mock_ragic_instance,
         ):
             from dreams_workflow.mail_receiver.app import lambda_handler
 
@@ -299,7 +327,7 @@ class TestSESEmailReceiptChain:
                             "messageId": "msg-ses-001",
                             "source": "taipower@taipower.com.tw",
                             "commonHeaders": {
-                                "subject": "Re: 台電站點申請 - CASE-100",
+                                "subject": "Re: 【DREAMS審核】_TEST-INT-100/案場_測試案場/電號12345678901",
                             },
                         },
                         "receipt": {},
@@ -312,13 +340,14 @@ class TestSESEmailReceiptChain:
             assert result["statusCode"] == 200
             body = json.loads(result["body"])
             assert body["case_id"] == "100"
-            assert body["action"] == "email_processed"
+            assert body["action"] == "case_approved"
+            assert body["new_status"] == "發送前人工確認"
 
-            # Verify AI determination was invoked
-            mock_lambda.invoke.assert_called_once()
-            call_kwargs = mock_lambda.invoke.call_args[1]
-            assert call_kwargs["FunctionName"] == "test-ai-determination"
-            assert call_kwargs["InvocationType"] == "RequestResponse"
+            # Verify RAGIC was updated with the new status
+            mock_ragic_instance.update_case_record.assert_called()
+            update_args = mock_ragic_instance.update_case_record.call_args
+            assert update_args[0][0] == "100"  # case_id
+            assert "發送前人工確認" in str(update_args[0][1].values())
 
     @mock_aws
     def test_ses_email_no_matching_case(self):
@@ -337,7 +366,7 @@ class TestSESEmailReceiptChain:
 
         s3_client.put_object(
             Bucket="test-ses-email-bucket",
-            Key="emails/msg-unknown-001",
+            Key="incoming/msg-unknown-001",
             Body=raw_email.as_bytes(),
         )
 
@@ -533,10 +562,10 @@ class TestNewContractCaseFlow:
             CaseStatus.TAIPOWER_REVIEW,
         )
 
-        # Cannot go from 待填問卷 directly to 已結案 (new contract)
+        # Cannot go from 待填問卷 directly to 安裝階段
         assert not validate_transition(
             CaseStatus.PENDING_QUESTIONNAIRE,
-            CaseStatus.CASE_CLOSED,
+            CaseStatus.INSTALLATION_PHASE,
         )
 
         # Cannot go backwards from 安裝階段 to 待人工確認
@@ -600,7 +629,7 @@ class TestRenewalCaseFlow:
                 "CASE-RENEW-001", "待填問卷"
             )
 
-            # ---- Step 2: 待填問卷 → 續約處理 ----
+            # ---- Step 2: 待填問卷 → renewal redirect (no status change) ----
             from dreams_workflow.workflow_engine.app import handle_questionnaire_response
 
             mock_ragic.update_case_status.reset_mock()
@@ -610,12 +639,9 @@ class TestRenewalCaseFlow:
                 is_renewal=True,
             )
 
-            assert result["new_status"] == "續約處理"
-            mock_ragic.update_case_status.assert_called_with(
-                "CASE-RENEW-001", "續約處理"
-            )
+            assert result["action"] == "renewal_redirect"
 
-            # ---- Step 3: 續約處理 → 已結案 ----
+            # ---- Step 3: 待填問卷 → 已結案 (renewal complete) ----
             from dreams_workflow.workflow_engine.renewal_flow import handle_renewal_complete
 
             mock_ragic.update_case_status.reset_mock()
@@ -653,7 +679,7 @@ class TestRenewalCaseFlow:
                 is_renewal=True,
             )
 
-            assert result["action"] == "renewal_processing"
+            assert result["action"] == "renewal_redirect"
 
             # Verify AI determination was NOT invoked
             # The Lambda client should NOT have been called with ai_determination
@@ -672,36 +698,24 @@ class TestRenewalCaseFlow:
             CaseStatus.PENDING_QUESTIONNAIRE,
         )
 
-        # 待填問卷 → 續約處理
+        # 待填問卷 → 已結案 (renewal direct close)
         assert validate_transition(
             CaseStatus.PENDING_QUESTIONNAIRE,
-            CaseStatus.RENEWAL_PROCESSING,
-        )
-
-        # 續約處理 → 已結案
-        assert validate_transition(
-            CaseStatus.RENEWAL_PROCESSING,
             CaseStatus.CASE_CLOSED,
         )
 
     def test_renewal_cannot_enter_taipower_review(self):
-        """Verify renewal cases cannot transition to Taipower review states."""
+        """Verify renewal cases cannot transition from PENDING_QUESTIONNAIRE to Taipower review states."""
         from dreams_workflow.shared.state_machine import validate_transition
 
-        # 續約處理 cannot go to 台電審核
+        # 待填問卷 cannot go to 台電審核
         assert not validate_transition(
-            CaseStatus.RENEWAL_PROCESSING,
+            CaseStatus.PENDING_QUESTIONNAIRE,
             CaseStatus.TAIPOWER_REVIEW,
         )
 
-        # 續約處理 cannot go to 安裝階段
+        # 待填問卷 cannot go to 安裝階段
         assert not validate_transition(
-            CaseStatus.RENEWAL_PROCESSING,
+            CaseStatus.PENDING_QUESTIONNAIRE,
             CaseStatus.INSTALLATION_PHASE,
-        )
-
-        # 續約處理 can only go to 已結案
-        assert not validate_transition(
-            CaseStatus.RENEWAL_PROCESSING,
-            CaseStatus.PENDING_MANUAL_CONFIRM,
         )

@@ -3,7 +3,8 @@
 # Feature: dreams-application-flow, Property 10: 續約案件流程完整性
 
 Validates that renewal cases do not trigger AI determination, go directly
-to 續約處理 status, and close directly without intermediate states.
+from 待填問卷 to 已結案 (via SunVeillance website), and close directly
+without intermediate states.
 """
 
 from unittest.mock import MagicMock, patch
@@ -35,20 +36,22 @@ class TestRenewalFlowCompleteness:
     @settings(max_examples=100)
     @given(case_id=case_id_strategy, site_id=site_id_strategy)
     def test_renewal_does_not_pass_through_taipower_review(self, case_id, site_id):
-        """Renewal cases must not transition through 台電審核 or 安裝階段."""
-        # Verify that RENEWAL_PROCESSING can only go to CASE_CLOSED
-        allowed = VALID_TRANSITIONS.get(CaseStatus.RENEWAL_PROCESSING, [])
+        """Renewal cases must not transition through 台電審核 or 安裝階段.
+
+        PENDING_QUESTIONNAIRE can go to CASE_CLOSED (renewal direct close)
+        but not to TAIPOWER_REVIEW or INSTALLATION_PHASE directly.
+        """
+        allowed = VALID_TRANSITIONS.get(CaseStatus.PENDING_QUESTIONNAIRE, [])
         assert CaseStatus.CASE_CLOSED in allowed
         assert CaseStatus.TAIPOWER_REVIEW not in allowed
         assert CaseStatus.INSTALLATION_PHASE not in allowed
-        assert CaseStatus.PENDING_MANUAL_CONFIRM not in allowed
 
     @settings(max_examples=100)
     @given(case_id=case_id_strategy, site_id=site_id_strategy)
     def test_renewal_transitions_directly_to_closed(self, case_id, site_id):
-        """Renewal cases transition directly from 續約處理 to 已結案."""
+        """Renewal cases transition directly from 待填問卷 to 已結案."""
         assert validate_transition(
-            CaseStatus.RENEWAL_PROCESSING, CaseStatus.CASE_CLOSED
+            CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.CASE_CLOSED
         ) is True
 
     @settings(max_examples=100)
@@ -56,7 +59,7 @@ class TestRenewalFlowCompleteness:
     def test_renewal_complete_writes_site_id_and_closes(self, case_id, site_id):
         """handle_renewal_complete writes site_id to RAGIC and transitions to 已結案."""
         mock_ragic = MagicMock()
-        mock_ragic.get_case_status.return_value = CaseStatus.RENEWAL_PROCESSING
+        mock_ragic.get_case_status.return_value = CaseStatus.PENDING_QUESTIONNAIRE
 
         with patch(
             "dreams_workflow.workflow_engine.renewal_flow.CloudRagicClient",
@@ -81,9 +84,22 @@ class TestRenewalFlowCompleteness:
 
     @settings(max_examples=100)
     @given(case_id=case_id_strategy)
-    def test_renewal_cannot_reach_ai_determination_states(self, case_id):
-        """From 續約處理, there is no path to 待人工確認 (AI determination result)."""
-        # 續約處理 only goes to 已結案
-        allowed = VALID_TRANSITIONS.get(CaseStatus.RENEWAL_PROCESSING, [])
-        assert len(allowed) == 1
-        assert allowed[0] == CaseStatus.CASE_CLOSED
+    def test_renewal_questionnaire_returns_redirect(self, case_id):
+        """Renewal questionnaire response returns renewal_redirect action (no status change)."""
+        from dreams_workflow.workflow_engine.app import handle_questionnaire_response
+
+        with patch(
+            "dreams_workflow.workflow_engine.app.CloudRagicClient",
+        ), patch(
+            "dreams_workflow.shared.case_resolver.resolve_ragic_id_from_payload",
+            return_value=None,
+        ), patch(
+            "dreams_workflow.shared.case_resolver.resolve_case_context",
+            return_value={"resolved": False},
+        ):
+            result = handle_questionnaire_response(
+                case_id, {"electricity_number": "06-1234-5678"}, is_renewal=True
+            )
+
+        assert result["action"] == "renewal_redirect"
+        assert "new_status" not in result

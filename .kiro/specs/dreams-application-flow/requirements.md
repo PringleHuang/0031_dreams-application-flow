@@ -63,7 +63,7 @@
 3. IF 客戶選擇「非續約（新約）」，THEN THE 問卷 SHALL 要求客戶填寫完整申請資料並上傳 5 份佐證文件
 4. WHEN 客戶在 RAGIC 完成問卷填寫，THE RAGIC 平台 SHALL 透過 Webhook 通知 AWS API Gateway 觸發 Lambda 函式
 5. WHEN Lambda 函式被觸發且案件類型為「新約」，THE AI_Determination_Service SHALL 讀取客戶提交的佐證文件（共 5 份文件），並與問卷資料進行比對判定
-6. WHEN Lambda 函式被觸發且案件類型為「續約」，THE Workflow_System SHALL 將案件狀態更新為「續約處理」，進入續約簡化流程（需求 16）
+6. WHEN Lambda 函式被觸發且案件類型為「續約」，THE Workflow_System SHALL 直接提供 SunVeillance 續約網站連結給客戶，進入續約簡化流程（需求 16），不經過「續約處理」狀態站點
 7. WHEN AI 判定完成（新約案件），THE Workflow_System SHALL 將判定結果（含各項目通過/不通過狀態與理由）寫入雲端 RAGIC 案件管理表單
 8. WHEN AI 判定結果寫入完成，THE Workflow_System SHALL 等待公司聯絡人在 RAGIC 案件管理表單中手動變更案件狀態
 9. WHEN 公司聯絡人在 RAGIC 手動變更案件狀態，THE Cloud_RAGIC SHALL 透過 Webhook 觸發對應的下一階段流程
@@ -156,7 +156,7 @@
 #### 驗收條件
 
 1. THE Workflow_System SHALL 以雲端 RAGIC 案件管理表單（https://ap13.ragic.com/solarcs/business-process2/2）作為案件狀態的唯一 source of truth
-2. THE Workflow_System SHALL 維護以下案件狀態：「新開案件」、「待填問卷」、「待人工確認」、「資訊補件」、「台電審核」、「發送前人工確認」、「台電補件」、「安裝階段」、「完成上線」、「已結案」、「續約處理」
+2. THE Workflow_System SHALL 維護以下案件狀態：「新開案件」、「待填問卷」、「待人工確認」、「資訊補件」、「台電審核」、「發送前人工確認」、「台電補件」、「安裝階段」、「完成上線」、「已結案」
 3. THE Workflow_System SHALL 維護以下案件類型：「新約」、「續約」
 4. WHEN 案件狀態發生變更（無論由系統自動或人工手動），THE Cloud_RAGIC SHALL 透過 Webhook 通知 AWS API Gateway 觸發對應的流程
 5. THE Workflow_System SHALL 確保案件狀態轉換僅遵循定義的合法轉換路徑
@@ -229,10 +229,10 @@
 
 #### 驗收條件
 
-1. WHEN 案件類型為「續約」且客戶已填寫電號，THE Workflow_System SHALL 將案件狀態更新為「續約處理」
-2. WHEN 案件狀態為「續約處理」，THE Workflow_System SHALL 提供 SunVeillance 系統登入資訊給客戶，引導客戶選擇續約案場
-3. WHEN 客戶在 SunVeillance 完成續約案場選擇，THE Workflow_System SHALL 將續約結果回寫至雲端 RAGIC 案件管理表單（https://ap13.ragic.com/solarcs/business-process2/2）
-4. WHEN 回寫完成，THE Workflow_System SHALL 將案件狀態更新為「已結案」並記錄結案原因為「續約完成」
+1. WHEN 案件類型為「續約」且客戶已填寫電號，THE Workflow_System SHALL 直接提供 SunVeillance 續約網站連結給客戶，不經過「續約處理」狀態站點
+2. WHEN 客戶點擊續約網站連結，THE 續約網站 SHALL 引導客戶登入 SunVeillance 並選擇續約案場
+3. WHEN 客戶在 SunVeillance 完成續約案場選擇，THE SunVeillance 系統 SHALL 將續約結果回寫至雲端 RAGIC 案件管理表單（https://ap13.ragic.com/solarcs/business-process2/2）
+4. WHEN 回寫完成，THE SunVeillance 系統 SHALL 將案件狀態更新為「已結案」並記錄結案原因為「續約完成」
 
 ### 需求 17：出貨掃描服務
 

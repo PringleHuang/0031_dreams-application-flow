@@ -279,30 +279,19 @@ def handle_questionnaire_response(
         }
 
     if is_renewal:
-        # Status OK — update to "續約處理"
-        ragic_client = CloudRagicClient()
-        try:
-            transition_case_status(
-                case_id=case_id,
-                new_status=CaseStatus.RENEWAL_PROCESSING,
-                reason="續約案件，客戶已填寫電號",
-                current_status=CaseStatus.PENDING_QUESTIONNAIRE,
-                store=ragic_client,
-            )
-        finally:
-            ragic_client.close()
-
+        # Renewal case — no status change needed.
+        # The SunVeillance website handles the renewal flow directly.
         log_operation(
             logger,
             case_id=case_id,
             operation_type="handle_questionnaire_response_complete",
-            message="Renewal case: status updated to 續約處理",
+            message="Renewal case: redirected to SunVeillance website for renewal processing",
         )
 
         return {
             "case_id": case_id,
-            "action": "renewal_processing",
-            "new_status": CaseStatus.RENEWAL_PROCESSING.value,
+            "action": "renewal_redirect",
+            "message": "Renewal case - redirected to SunVeillance website",
         }
 
     else:
@@ -386,6 +375,14 @@ def handle_status_change(case_id: str, payload: dict) -> dict:
         return _handle_taipower_supplement_trigger(resolved_record_id, payload)
     elif new_status_value == CaseStatus.INSTALLATION_PHASE.value:
         return _handle_installation_trigger(resolved_record_id, payload)
+    elif new_status_value == CaseStatus.PENDING_MANUAL_CONFIRM.value:
+        return _handle_pending_manual_confirm(resolved_record_id, payload)
+    elif new_status_value == CaseStatus.ONLINE_COMPLETED.value:
+        return _handle_online_completed(resolved_record_id, payload)
+    elif new_status_value == CaseStatus.CASE_CLOSED.value:
+        return _handle_case_closed(resolved_record_id, payload)
+    elif new_status_value == CaseStatus.ANOMALY.value:
+        return _handle_anomaly(resolved_record_id, payload)
     else:
         log_operation(
             logger,
@@ -795,6 +792,102 @@ def _handle_installation_trigger(case_id: str, payload: dict) -> dict:
     from dreams_workflow.workflow_engine.installation_flow import handle_installation_phase
 
     return handle_installation_phase(case_id, payload)
+
+
+def _handle_pending_manual_confirm(case_id: str, payload: dict) -> dict:
+    """Handle transition to 待人工確認 status.
+
+    No action needed — waiting for company contact to review in RAGIC.
+    """
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="handle_pending_manual_confirm",
+        message="Pending manual confirm status acknowledged, waiting for human review",
+    )
+    return {
+        "case_id": case_id,
+        "action": "pending_manual_confirm_acknowledged",
+        "message": "等待人工在 RAGIC 確認判定結果",
+    }
+
+
+def _handle_online_completed(case_id: str, payload: dict) -> dict:
+    """Handle transition to 完成上線 status.
+
+    TODO: Call external system API to write site online time when API is ready.
+    For now: log + transition to 已結案.
+    """
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="handle_online_completed",
+        message="Online completed, transitioning to case closed",
+    )
+
+    # TODO: Call SunVeillance API to write site online time
+    # When API is ready, add call here. On failure, send anomaly notification
+    # and set status to 異常處理 instead.
+
+    # Transition to 已結案
+    ragic_client = CloudRagicClient()
+    try:
+        transition_case_status(
+            case_id=case_id,
+            new_status=CaseStatus.CASE_CLOSED,
+            reason="完成上線，案件結案",
+            current_status=CaseStatus.ONLINE_COMPLETED,
+            store=ragic_client,
+        )
+    finally:
+        ragic_client.close()
+
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="handle_online_completed_done",
+        message="Case closed after online completion",
+    )
+
+    return {
+        "case_id": case_id,
+        "action": "online_completed_closed",
+        "new_status": CaseStatus.CASE_CLOSED.value,
+    }
+
+
+def _handle_case_closed(case_id: str, payload: dict) -> dict:
+    """Handle transition to 已結案 status.
+
+    No action needed — case is closed.
+    """
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="handle_case_closed",
+        message="Case closed, no further action needed",
+    )
+    return {
+        "case_id": case_id,
+        "action": "case_closed_acknowledged",
+    }
+
+
+def _handle_anomaly(case_id: str, payload: dict) -> dict:
+    """Handle transition to 異常處理 status.
+
+    No action needed — anomaly has been recorded and notified.
+    """
+    log_operation(
+        logger,
+        case_id=case_id,
+        operation_type="handle_anomaly",
+        message="Anomaly status acknowledged, case requires manual intervention",
+    )
+    return {
+        "case_id": case_id,
+        "action": "anomaly_acknowledged",
+    }
 
 
 # =============================================================================

@@ -30,7 +30,7 @@ from dreams_workflow.mail_receiver.app import (
 
 def _build_simple_email(
     sender: str = "taipower@example.com",
-    subject: str = "Re: DREAMS 台電站點申請 - CASE-123",
+    subject: str = "Re: 【DREAMS審核】_TEST0011-123",
     body: str = "本案核准通過。",
 ) -> bytes:
     """Build a simple text email."""
@@ -45,7 +45,7 @@ def _build_simple_email(
 
 def _build_multipart_email(
     sender: str = "taipower@example.com",
-    subject: str = "Re: 台電審核 [456]",
+    subject: str = "Re: 【DREAMS審核】_TEST0011-456",
     body_text: str = "審核結果：駁回。原因：地址不符。",
     body_html: str = "<p>審核結果：駁回</p>",
     attachment_name: str = "result.pdf",
@@ -73,6 +73,26 @@ def _build_multipart_email(
     msg.attach(att_part)
 
     return msg.as_bytes()
+
+
+# Mock config for match_case_by_sender tests
+_MOCK_MAIL_CONFIG = {
+    "allowed_senders": [
+        "tp@example.com",
+        "tp@taipower.com",
+        "pringle.huang@gmail.com",
+        "dreams@taipower.com.tw",
+    ],
+    "subject_patterns": [
+        r"【DREAMS[^】]*】[_\s]*([A-Za-z0-9]+-\d+)",
+        r"([A-Za-z0-9]+-\d+)",
+    ],
+    "email_classification": {
+        "electricity_number_created": {"keywords": ["電號已手動新增"]},
+        "approved": {"keywords": ["已通過審核"]},
+        "rejected": {"keywords": ["未通過審核"]},
+    },
+}
 
 
 # =============================================================================
@@ -149,39 +169,55 @@ class TestParseEmailContent:
 
 
 class TestMatchCaseBySender:
-    """Tests for match_case_by_sender."""
+    """Tests for match_case_by_sender.
 
-    def test_match_case_id_in_subject_with_dash(self):
-        """Match CASE-123 pattern in subject."""
-        result = match_case_by_sender("tp@example.com", "Re: DREAMS 台電站點申請 - CASE-123")
+    The function now uses _get_mail_config() to load allowed_senders and
+    subject_patterns. We mock _get_mail_config to return test config.
+    """
+
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_match_dreams_apply_id_in_subject(self, mock_config):
+        """Match DREAMS_APPLY_ID pattern (e.g. TEST0011-123) in subject, returns ragicId=123."""
+        result = match_case_by_sender("tp@example.com", "Re: 【DREAMS審核】_TEST0011-123")
         assert result == "123"
 
-    def test_match_case_id_in_brackets(self):
-        """Match [456] pattern in subject."""
-        result = match_case_by_sender("tp@example.com", "Re: 台電審核 [456]")
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_match_apply_id_without_prefix(self, mock_config):
+        """Match APPLY_ID pattern directly (e.g. CASE-456) in subject."""
+        result = match_case_by_sender("tp@example.com", "Re: CASE-456 審核結果")
         assert result == "456"
 
-    def test_match_case_id_with_hash(self):
-        """Match #789 pattern in subject."""
-        result = match_case_by_sender("tp@example.com", "回覆 #789 審核結果")
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_match_apply_id_with_multiple_dashes(self, mock_config):
+        """Match pattern with multiple dashes, takes last segment as ragicId."""
+        result = match_case_by_sender("tp@example.com", "【DREAMS審核】_ABC-DEF-789")
         assert result == "789"
 
-    def test_match_chinese_case_pattern(self):
-        """Match 案件：123 pattern in subject."""
-        result = match_case_by_sender("tp@example.com", "案件：999 審核通過")
-        assert result == "999"
-
-    def test_no_match_returns_none(self):
-        """Return None when no case ID pattern found."""
-        result = match_case_by_sender("random@example.com", "Hello World")
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_sender_not_in_whitelist_returns_none(self, mock_config):
+        """Return None when sender is not in allowed_senders whitelist."""
+        result = match_case_by_sender("random@example.com", "【DREAMS審核】_TEST0011-123")
         assert result is None
 
-    def test_sender_with_angle_brackets(self):
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_no_match_in_subject_returns_none(self, mock_config):
+        """Return None when no DREAMS_APPLY_ID pattern found in subject."""
+        result = match_case_by_sender("tp@example.com", "Hello World no pattern here")
+        assert result is None
+
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_sender_with_angle_brackets(self, mock_config):
         """Handle sender in 'Name <email>' format."""
         result = match_case_by_sender(
-            "Taipower <tp@taipower.com>", "Re: CASE-100 審核"
+            "Taipower <tp@taipower.com>", "Re: 【DREAMS審核】_SITE-100"
         )
         assert result == "100"
+
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
+    def test_sender_case_insensitive(self, mock_config):
+        """Sender matching is case-insensitive."""
+        result = match_case_by_sender("TP@EXAMPLE.COM", "Re: 【DREAMS審核】_TEST-200")
+        assert result == "200"
 
 
 # =============================================================================
@@ -193,7 +229,7 @@ class TestExtractS3Info:
     """Tests for _extract_s3_info."""
 
     def test_ses_notification_format(self):
-        """Extract from SES notification event."""
+        """Extract from SES notification event. Uses incoming/{messageId} path."""
         event = {
             "Records": [{
                 "ses": {
@@ -207,14 +243,16 @@ class TestExtractS3Info:
             }]
         }
 
-        with patch.dict("os.environ", {"SES_EMAIL_BUCKET": "my-email-bucket"}):
-            # Need to reimport to pick up env var
-            from dreams_workflow.mail_receiver import app
-            app.S3_BUCKET = "my-email-bucket"
+        from dreams_workflow.mail_receiver import app
+        original_bucket = app.S3_BUCKET
+        app.S3_BUCKET = "my-email-bucket"
+        try:
             bucket, key = _extract_s3_info(event)
+        finally:
+            app.S3_BUCKET = original_bucket
 
         assert bucket == "my-email-bucket"
-        assert key == "emails/msg-abc-123"
+        assert key == "incoming/msg-abc-123"
 
     def test_s3_event_format(self):
         """Extract from direct S3 event."""
@@ -247,7 +285,9 @@ class TestProcessAnalysisResult:
     """Tests for _process_analysis_result (status update after analysis)."""
 
     @patch("dreams_workflow.shared.ragic_client.CloudRagicClient")
-    def test_approved_updates_status_to_pre_send_confirm(self, mock_ragic_cls):
+    @patch("dreams_workflow.ai_determination.field_mapping_loader.get_taipower_result_mapping", return_value={})
+    @patch("dreams_workflow.ai_determination.field_mapping_loader.get_status_field_id", return_value="1015456")
+    def test_approved_updates_status_to_pre_send_confirm(self, mock_field_id, mock_mapping, mock_ragic_cls):
         """Approved result updates status to 發送前人工確認."""
         mock_ragic = MagicMock()
         mock_ragic_cls.return_value = mock_ragic
@@ -261,27 +301,31 @@ class TestProcessAnalysisResult:
         _process_analysis_result("CASE-001", analysis_result)
 
         mock_ragic.update_case_record.assert_called_once()
-        call_data = mock_ragic.update_case_record.call_args[0][1]
-        assert call_data["1015456"] == "發送前人工確認"
+        call_args = mock_ragic.update_case_record.call_args[0]
+        update_data = call_args[1]
+        assert update_data["1015456"] == "發送前人工確認"
 
     @patch("dreams_workflow.shared.ragic_client.CloudRagicClient")
-    def test_rejected_writes_reason_and_updates_status(self, mock_ragic_cls):
+    @patch("dreams_workflow.ai_determination.field_mapping_loader.get_taipower_result_mapping", return_value={})
+    @patch("dreams_workflow.ai_determination.field_mapping_loader.get_status_field_id", return_value="1015456")
+    def test_rejected_writes_reason_and_updates_status(self, mock_field_id, mock_mapping, mock_ragic_cls):
         """Rejected result writes rejection reason and updates status."""
         mock_ragic = MagicMock()
         mock_ragic_cls.return_value = mock_ragic
 
         analysis_result = {
             "category": "rejected",
-            "field_results": {"1014595": "Fail", "1014590": "Pass"},
+            "field_results": {},
             "rejection_reason_summary": "地址不符合",
         }
 
         _process_analysis_result("CASE-002", analysis_result)
 
         mock_ragic.update_case_record.assert_called_once()
-        call_data = mock_ragic.update_case_record.call_args[0][1]
-        assert call_data["1015456"] == "發送前人工確認"
-        assert call_data["taipower_rejection_reason"] == "地址不符合"
+        call_args = mock_ragic.update_case_record.call_args[0]
+        update_data = call_args[1]
+        assert update_data["1015456"] == "發送前人工確認"
+        assert update_data["taipower_rejection_reason"] == "地址不符合"
 
     def test_empty_result_does_nothing(self):
         """Empty analysis result does not update RAGIC."""
@@ -297,22 +341,32 @@ class TestProcessAnalysisResult:
 class TestLambdaHandler:
     """Integration tests for the lambda_handler."""
 
-    @patch("dreams_workflow.mail_receiver.app._process_analysis_result")
-    @patch("dreams_workflow.mail_receiver.app._trigger_semantic_analysis")
+    @patch("dreams_workflow.mail_receiver.app._handle_case_approved")
+    @patch("dreams_workflow.mail_receiver.app._classify_email", return_value="approved")
+    @patch("dreams_workflow.shared.ragic_client.CloudRagicClient")
     @patch("dreams_workflow.mail_receiver.app.match_case_by_sender")
     @patch("dreams_workflow.mail_receiver.app._read_email_from_s3")
     def test_full_flow_success(
-        self, mock_read, mock_match, mock_analysis, mock_process
+        self, mock_read, mock_match, mock_ragic_cls, mock_classify, mock_handle_approved
     ):
-        """Full flow: S3 → parse → match → analyze → update."""
+        """Full flow: S3 → parse → match → classify → handle."""
         raw_email = _build_simple_email(
             sender="tp@taipower.com",
-            subject="Re: CASE-555",
-            body="核准通過",
+            subject="Re: 【DREAMS審核】_TEST-555",
+            body="案場已通過審核",
         )
         mock_read.return_value = raw_email
         mock_match.return_value = "555"
-        mock_analysis.return_value = {"category": "approved"}
+
+        # Mock RAGIC status check
+        mock_ragic = MagicMock()
+        mock_ragic.get_case_record.return_value = {"1015456": "台電審核"}
+        mock_ragic_cls.return_value = mock_ragic
+
+        mock_handle_approved.return_value = {
+            "statusCode": 200,
+            "body": json.dumps({"case_id": "555", "action": "case_approved"}),
+        }
 
         event = {
             "Records": [{
@@ -326,12 +380,11 @@ class TestLambdaHandler:
         result = lambda_handler(event, None)
 
         assert result["statusCode"] == 200
-        body = json.loads(result["body"])
-        assert body["case_id"] == "555"
-        mock_process.assert_called_once()
+        mock_handle_approved.assert_called_once()
 
+    @patch("dreams_workflow.mail_receiver.app._get_mail_config", return_value=_MOCK_MAIL_CONFIG)
     @patch("dreams_workflow.mail_receiver.app._read_email_from_s3")
-    def test_no_matching_case(self, mock_read):
+    def test_no_matching_case(self, mock_read, mock_config):
         """When no case matches, returns 200 with message."""
         raw_email = _build_simple_email(
             sender="unknown@example.com",

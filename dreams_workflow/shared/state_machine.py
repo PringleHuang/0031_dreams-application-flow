@@ -21,10 +21,7 @@ VALID_TRANSITIONS: dict[CaseStatus, list[CaseStatus]] = {
     ],
     CaseStatus.PENDING_QUESTIONNAIRE: [
         CaseStatus.PENDING_MANUAL_CONFIRM,  # 新約 AI 判定完成
-        CaseStatus.RENEWAL_PROCESSING,  # 續約案件分流
-    ],
-    CaseStatus.RENEWAL_PROCESSING: [
-        CaseStatus.CASE_CLOSED,  # 續約完成直接結案
+        CaseStatus.CASE_CLOSED,  # 續約案件直接結案
     ],
     CaseStatus.PENDING_MANUAL_CONFIRM: [
         CaseStatus.TAIPOWER_REVIEW,  # 人工在 RAGIC 改狀態（合格）
@@ -35,6 +32,7 @@ VALID_TRANSITIONS: dict[CaseStatus, list[CaseStatus]] = {
     ],
     CaseStatus.TAIPOWER_REVIEW: [
         CaseStatus.PRE_SEND_CONFIRM,  # 台電回覆後進入發送前人工確認
+        CaseStatus.ANOMALY,  # DREAMS API 錯誤
     ],
     CaseStatus.PRE_SEND_CONFIRM: [
         CaseStatus.INSTALLATION_PHASE,  # 人工確認核准，進入安裝階段

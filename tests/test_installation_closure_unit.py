@@ -177,7 +177,7 @@ class TestRenewalFlow:
     def test_renewal_complete_closes_case(self, mock_ragic_cls):
         """Renewal completion writes site_id and closes case."""
         mock_ragic = MagicMock()
-        mock_ragic.get_case_status.return_value = CaseStatus.RENEWAL_PROCESSING
+        mock_ragic.get_case_status.return_value = CaseStatus.PENDING_QUESTIONNAIRE
         mock_ragic_cls.return_value = mock_ragic
 
         result = handle_renewal_complete("CASE-001", {"renewal_site_id": "SITE-ABC"})

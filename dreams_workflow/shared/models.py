@@ -20,7 +20,7 @@ class CaseStatus(str, Enum):
     INSTALLATION_PHASE = "安裝階段"
     ONLINE_COMPLETED = "完成上線"
     CASE_CLOSED = "已結案"
-    RENEWAL_PROCESSING = "續約處理"
+    ANOMALY = "異常處理"
 
 
 class CaseType(str, Enum):

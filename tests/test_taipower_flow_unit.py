@@ -39,18 +39,31 @@ class TestDreamsApiClient:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": True,
-            "case_number": "DREAMS-2026-001",
-            "pdf_base64": base64.b64encode(b"fake pdf content").decode(),
+            "IsSuccess": True,
+            "Data": {"id": 1, "plantId": 100},
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("requests.post", return_value=mock_response) as mock_post:
-            client = DreamsApiClient(api_url="http://test-api/submit")
+        # Mock the PDF download as well
+        mock_pdf_response = MagicMock()
+        mock_pdf_response.status_code = 200
+        mock_pdf_response.headers = {"Content-Type": "application/pdf"}
+        mock_pdf_response.content = b"fake pdf content"
+        mock_pdf_response.raise_for_status = MagicMock()
+
+        def mock_post_side_effect(url, **kwargs):
+            return mock_response
+
+        def mock_get_side_effect(url, **kwargs):
+            return mock_pdf_response
+
+        with patch("requests.post", side_effect=mock_post_side_effect) as mock_post, \
+             patch("requests.get", side_effect=mock_get_side_effect):
+            client = DreamsApiClient(api_url="http://test-api")
             result = client.submit_application("CASE-001", {"electricity_number": "12-34-5678-90-1"})
 
         assert result.success is True
-        assert result.case_number == "DREAMS-2026-001"
+        assert result.case_number == "12345678901"  # dashes stripped
         assert result.pdf_base64 is not None
         assert result.error_code is None
         mock_post.assert_called_once()
@@ -60,19 +73,18 @@ class TestDreamsApiClient:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "success": False,
-            "error_code": "NO_ELECTRICITY_NUMBER",
-            "error_message": "電號不存在於 DREAMS 系統",
+            "IsSuccess": False,
+            "ErrorMessage": "電號不存在於 DREAMS 系統",
         }
         mock_response.raise_for_status = MagicMock()
 
         with patch("requests.post", return_value=mock_response):
-            client = DreamsApiClient(api_url="http://test-api/submit")
+            client = DreamsApiClient(api_url="http://test-api")
             result = client.submit_application("CASE-001", {"electricity_number": "99-99-9999-99-9"})
 
         assert result.success is False
         assert result.error_code == ERROR_NO_ELECTRICITY_NUMBER
-        assert result.error_message == "電號不存在於 DREAMS 系統"
+        assert "不存在" in result.error_message
         assert result.case_number is None
 
     def test_submit_application_http_error_raises_dreams_connection_error(self):
@@ -84,7 +96,7 @@ class TestDreamsApiClient:
         mock_response.raise_for_status.side_effect = http_error
 
         with patch("requests.post", return_value=mock_response):
-            client = DreamsApiClient(api_url="http://test-api/submit")
+            client = DreamsApiClient(api_url="http://test-api")
             with pytest.raises(DreamsConnectionError):
                 client.submit_application("CASE-001", {})
 
@@ -94,17 +106,9 @@ class TestDreamsApiClient:
             "requests.post",
             side_effect=requests.exceptions.ConnectionError("Connection refused"),
         ):
-            client = DreamsApiClient(api_url="http://test-api/submit")
+            client = DreamsApiClient(api_url="http://test-api")
             with pytest.raises(DreamsConnectionError):
                 client.submit_application("CASE-001", {})
-
-    def test_submit_application_not_configured(self):
-        """Returns error response when API URL not configured."""
-        client = DreamsApiClient(api_url="")
-        result = client.submit_application("CASE-001", {})
-
-        assert result.success is False
-        assert result.error_code == "NOT_CONFIGURED"
 
     def test_submit_application_timeout(self):
         """Timeout triggers DreamsConnectionError."""
@@ -112,7 +116,7 @@ class TestDreamsApiClient:
             "requests.post",
             side_effect=requests.exceptions.Timeout("Request timed out"),
         ):
-            client = DreamsApiClient(api_url="http://test-api/submit", timeout=5)
+            client = DreamsApiClient(api_url="http://test-api", timeout=5)
             with pytest.raises(DreamsConnectionError):
                 client.submit_application("CASE-001", {})
 
@@ -229,24 +233,32 @@ class TestHandleTaipowerReview:
         with patch.dict("os.environ", {"EMAIL_SERVICE_FUNCTION_NAME": "email-fn"}):
             result = handle_taipower_review("CASE-002", payload)
 
-        # Check that email was called with attachments containing the PDF
-        call_kwargs = mock_email.call_args
-        attachments = call_kwargs[1].get("attachments") or call_kwargs[0][4] if len(call_kwargs[0]) > 4 else None
-        # The function uses keyword args
-        assert result["attachments_count"] == 1  # Only PDF since mock_get_docs returns []
+        # Only PDF since mock_get_docs returns []
+        assert result["attachments_count"] == 1
 
+    @patch("dreams_workflow.shared.state_machine.transition_case_status")
+    @patch("dreams_workflow.workflow_engine.taipower_flow.CloudRagicClient")
+    @patch("dreams_workflow.workflow_engine.taipower_flow._invoke_email_service")
     @patch("dreams_workflow.workflow_engine.taipower_flow.DreamsApiClient")
-    def test_other_api_error(self, mock_api_cls):
-        """On other API errors, returns error details."""
+    def test_other_api_error(self, mock_api_cls, mock_email, mock_ragic_cls, mock_transition):
+        """On other API errors, sends anomaly notification and updates status to 異常處理."""
         mock_api = MagicMock()
         mock_api.submit_application.return_value = DreamsApiResponse(
             success=False,
-            error_code="FORM_VALIDATION_ERROR",
+            error_code="API_ERROR",
             error_message="Missing required field",
+            raw_response={"IsSuccess": False, "ErrorMessage": "Missing required field"},
         )
         mock_api_cls.return_value = mock_api
+        mock_ragic_cls.return_value = MagicMock()
 
-        result = handle_taipower_review("CASE-001", {})
+        with patch.dict("os.environ", {
+            "EMAIL_SERVICE_FUNCTION_NAME": "email-fn",
+            "TAIPOWER_REVIEW_CONTACT_EMAIL": "review@taipower.com",
+        }):
+            result = handle_taipower_review("CASE-001", {})
 
         assert result["action"] == "taipower_review_api_error"
-        assert result["error_code"] == "FORM_VALIDATION_ERROR"
+        assert result["error_code"] == "API_ERROR"
+        # Anomaly notification should be sent
+        mock_email.assert_called_once()

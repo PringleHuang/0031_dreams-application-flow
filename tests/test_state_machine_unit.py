@@ -47,16 +47,10 @@ class TestValidTransitionPaths:
             CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.PENDING_MANUAL_CONFIRM
         ) is True
 
-    def test_pending_questionnaire_to_renewal_processing(self):
-        """續約案件分流：待填問卷 → 續約處理"""
+    def test_pending_questionnaire_to_case_closed(self):
+        """續約案件直接結案：待填問卷 → 已結案"""
         assert validate_transition(
-            CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.RENEWAL_PROCESSING
-        ) is True
-
-    def test_renewal_processing_to_case_closed(self):
-        """續約完成直接結案：續約處理 → 已結案"""
-        assert validate_transition(
-            CaseStatus.RENEWAL_PROCESSING, CaseStatus.CASE_CLOSED
+            CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.CASE_CLOSED
         ) is True
 
     def test_pending_manual_confirm_to_taipower_review(self):
@@ -95,10 +89,10 @@ class TestValidTransitionPaths:
             CaseStatus.PRE_SEND_CONFIRM, CaseStatus.TAIPOWER_SUPPLEMENT
         ) is True
 
-    def test_taipower_supplement_to_taipower_review(self):
-        """補件完成重新申請：台電補件 → 台電審核"""
+    def test_taipower_supplement_to_pending_manual_confirm(self):
+        """補件AI判讀完成：台電補件 → 待人工確認"""
         assert validate_transition(
-            CaseStatus.TAIPOWER_SUPPLEMENT, CaseStatus.TAIPOWER_REVIEW
+            CaseStatus.TAIPOWER_SUPPLEMENT, CaseStatus.PENDING_MANUAL_CONFIRM
         ) is True
 
     def test_installation_phase_to_online_completed(self):
@@ -111,6 +105,12 @@ class TestValidTransitionPaths:
         """資料同步完成：完成上線 → 已結案"""
         assert validate_transition(
             CaseStatus.ONLINE_COMPLETED, CaseStatus.CASE_CLOSED
+        ) is True
+
+    def test_taipower_review_to_anomaly(self):
+        """DREAMS API 錯誤：台電審核 → 異常處理"""
+        assert validate_transition(
+            CaseStatus.TAIPOWER_REVIEW, CaseStatus.ANOMALY
         ) is True
 
     def test_all_valid_transitions_count(self):
@@ -126,15 +126,15 @@ class TestValidTransitionExecution:
         "current,target,description",
         [
             (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.PENDING_MANUAL_CONFIRM, "新約AI判定完成"),
-            (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.RENEWAL_PROCESSING, "續約案件分流"),
-            (CaseStatus.RENEWAL_PROCESSING, CaseStatus.CASE_CLOSED, "續約完成結案"),
+            (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.CASE_CLOSED, "續約案件直接結案"),
             (CaseStatus.PENDING_MANUAL_CONFIRM, CaseStatus.TAIPOWER_REVIEW, "人工確認合格"),
             (CaseStatus.PENDING_MANUAL_CONFIRM, CaseStatus.INFO_SUPPLEMENT, "人工確認不合格"),
             (CaseStatus.INFO_SUPPLEMENT, CaseStatus.PENDING_MANUAL_CONFIRM, "補件後重新判定"),
             (CaseStatus.TAIPOWER_REVIEW, CaseStatus.PRE_SEND_CONFIRM, "台電回覆進入人工確認"),
+            (CaseStatus.TAIPOWER_REVIEW, CaseStatus.ANOMALY, "DREAMS API錯誤"),
             (CaseStatus.PRE_SEND_CONFIRM, CaseStatus.INSTALLATION_PHASE, "人工確認核准"),
             (CaseStatus.PRE_SEND_CONFIRM, CaseStatus.TAIPOWER_SUPPLEMENT, "人工確認需補件"),
-            (CaseStatus.TAIPOWER_SUPPLEMENT, CaseStatus.TAIPOWER_REVIEW, "補件完成重新申請"),
+            (CaseStatus.TAIPOWER_SUPPLEMENT, CaseStatus.PENDING_MANUAL_CONFIRM, "補件完成重新判定"),
             (CaseStatus.INSTALLATION_PHASE, CaseStatus.ONLINE_COMPLETED, "自主檢查通過"),
             (CaseStatus.ONLINE_COMPLETED, CaseStatus.CASE_CLOSED, "資料同步完成結案"),
         ],
@@ -169,17 +169,13 @@ class TestIllegalTransitionRejection:
             # Cannot skip stages
             (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.TAIPOWER_REVIEW),
             (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.INSTALLATION_PHASE),
-            (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.CASE_CLOSED),
             # Cannot go backwards (except defined loops)
             (CaseStatus.TAIPOWER_REVIEW, CaseStatus.PENDING_QUESTIONNAIRE),
             (CaseStatus.INSTALLATION_PHASE, CaseStatus.TAIPOWER_REVIEW),
             (CaseStatus.CASE_CLOSED, CaseStatus.PENDING_QUESTIONNAIRE),
             # Terminal state cannot transition
             (CaseStatus.CASE_CLOSED, CaseStatus.ONLINE_COMPLETED),
-            (CaseStatus.CASE_CLOSED, CaseStatus.RENEWAL_PROCESSING),
-            # Renewal cannot go to non-defined targets
-            (CaseStatus.RENEWAL_PROCESSING, CaseStatus.TAIPOWER_REVIEW),
-            (CaseStatus.RENEWAL_PROCESSING, CaseStatus.INSTALLATION_PHASE),
+            (CaseStatus.ANOMALY, CaseStatus.TAIPOWER_REVIEW),
             # Cross-path transitions not allowed
             (CaseStatus.INFO_SUPPLEMENT, CaseStatus.TAIPOWER_REVIEW),
             (CaseStatus.TAIPOWER_SUPPLEMENT, CaseStatus.INFO_SUPPLEMENT),
@@ -192,9 +188,9 @@ class TestIllegalTransitionRejection:
     @pytest.mark.parametrize(
         "current,target",
         [
-            (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.CASE_CLOSED),
+            (CaseStatus.PENDING_QUESTIONNAIRE, CaseStatus.TAIPOWER_REVIEW),
             (CaseStatus.CASE_CLOSED, CaseStatus.PENDING_QUESTIONNAIRE),
-            (CaseStatus.RENEWAL_PROCESSING, CaseStatus.TAIPOWER_REVIEW),
+            (CaseStatus.ANOMALY, CaseStatus.TAIPOWER_REVIEW),
         ],
     )
     def test_transition_case_status_raises_invalid_transition_error(self, current, target):
@@ -263,9 +259,13 @@ class TestBoundaryConditions:
         """已結案 is a terminal state with no valid outgoing transitions."""
         assert CaseStatus.CASE_CLOSED not in VALID_TRANSITIONS
 
+    def test_anomaly_has_no_outgoing_transitions(self):
+        """異常處理 is a terminal state with no valid outgoing transitions."""
+        assert CaseStatus.ANOMALY not in VALID_TRANSITIONS
+
     def test_all_non_terminal_states_have_transitions(self):
         """All non-terminal states have at least one valid outgoing transition."""
-        terminal_states = {CaseStatus.CASE_CLOSED}
+        terminal_states = {CaseStatus.CASE_CLOSED, CaseStatus.ANOMALY}
         for status in CaseStatus:
             if status not in terminal_states:
                 assert status in VALID_TRANSITIONS, (
@@ -296,7 +296,7 @@ class TestBoundaryConditions:
 
         result = transition_case_status(
             case_id="",
-            new_status=CaseStatus.RENEWAL_PROCESSING,
+            new_status=CaseStatus.PENDING_MANUAL_CONFIRM,
             reason="empty id test",
             current_status=CaseStatus.PENDING_QUESTIONNAIRE,
             store=store,
@@ -322,8 +322,8 @@ class TestBoundaryConditions:
         """VALID_TRANSITIONS keys cover all statuses except terminal ones."""
         defined_sources = set(VALID_TRANSITIONS.keys())
         all_statuses = set(CaseStatus)
-        # CASE_CLOSED is the only terminal state
-        expected_sources = all_statuses - {CaseStatus.CASE_CLOSED}
+        # CASE_CLOSED and ANOMALY are terminal states
+        expected_sources = all_statuses - {CaseStatus.CASE_CLOSED, CaseStatus.ANOMALY}
         assert defined_sources == expected_sources
 
     def test_no_transition_targets_undefined_status(self):

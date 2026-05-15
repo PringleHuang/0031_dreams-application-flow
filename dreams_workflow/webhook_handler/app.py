@@ -150,6 +150,32 @@ def lambda_handler(event: dict, context: Any) -> dict:
     # Get case_id from _ragicId
     case_id = str(record_data.get("_ragicId", "unknown"))
 
+    # For update events, re-fetch full record from RAGIC API to ensure complete data
+    if ragic_meta.get("eventType") == "update" and case_id != "unknown":
+        try:
+            from dreams_workflow.shared.ragic_client import CloudRagicClient
+            ragic_client = CloudRagicClient()
+            try:
+                full_record = ragic_client.get_case_record(case_id)
+                if full_record and isinstance(full_record, dict) and len(full_record) > 3:
+                    record_data = full_record
+                    log_operation(
+                        logger,
+                        case_id=case_id,
+                        operation_type="webhook_refetch",
+                        message=f"Re-fetched full record from RAGIC ({len(full_record)} fields)",
+                    )
+            finally:
+                ragic_client.close()
+        except Exception as e:
+            log_operation(
+                logger,
+                case_id=case_id,
+                operation_type="webhook_refetch_error",
+                message=f"Failed to re-fetch record, using payload data: {e}",
+                level="warning",
+            )
+
     # Classify event type using metadata + record data
     event_type = classify_webhook_event(ragic_meta, record_data)
 

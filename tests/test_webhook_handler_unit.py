@@ -49,7 +49,17 @@ def _make_api_gateway_event(
     headers: dict | None = None,
     is_base64: bool = False,
 ) -> dict:
-    """Build a minimal API Gateway event dict."""
+    """Build a minimal API Gateway event dict.
+
+    Body should be in RAGIC webhook format:
+    {
+        "data": [{ "_ragicId": ..., ... }],
+        "path": "/business-process2",
+        "sheetIndex": 2,
+        "eventType": "create" | "update",
+        "apname": "solarcs",
+    }
+    """
     if isinstance(body, dict):
         body = json.dumps(body, ensure_ascii=False)
     if is_base64:
@@ -70,184 +80,154 @@ def _compute_hmac_signature(secret: str, body: str) -> str:
     ).hexdigest()
 
 
+def _make_ragic_payload(
+    path: str = "/business-process2",
+    sheet_index: int = 2,
+    event_type: str = "create",
+    ragic_id: int = 1,
+    record_fields: dict | None = None,
+) -> dict:
+    """Build a RAGIC webhook payload dict."""
+    record = {"_ragicId": ragic_id}
+    if record_fields:
+        record.update(record_fields)
+    return {
+        "data": [record],
+        "path": path,
+        "sheetIndex": sheet_index,
+        "eventType": event_type,
+        "apname": "solarcs",
+    }
+
+
 # =============================================================================
 # Test: 5 種事件類型的正確分類 (Requirements 11.2)
 # =============================================================================
 
 
 class TestClassifyWebhookEvent:
-    """Tests for classify_webhook_event covering all 5 event types."""
+    """Tests for classify_webhook_event covering all 5 event types.
+
+    classify_webhook_event now takes (ragic_meta, record_data) instead of a flat payload.
+    """
 
     # --- NEW_CASE_CREATED ---
 
-    def test_new_case_created_via_action_create(self):
-        """Case management form with action=create → NEW_CASE_CREATED."""
-        payload = {
-            "form_path": "business-process2/2",
-            "action": "create",
-            "case_id": "CASE-001",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CASE_CREATED
+    def test_new_case_created_via_status_field(self):
+        """Case management form with status=新開案件 → NEW_CASE_CREATED."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 2, "eventType": "create"}
+        record_data = {"_ragicId": 1, "1015456": "新開案件"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CASE_CREATED
 
-    def test_new_case_created_via_is_new_record_flag(self):
-        """Case management form with is_new_record=True → NEW_CASE_CREATED."""
-        payload = {
-            "form_path": "business-process2/2",
-            "is_new_record": True,
-            "case_id": "CASE-002",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CASE_CREATED
+    def test_new_case_created_update_event_with_new_status(self):
+        """Case management form with eventType=update but status=新開案件 → NEW_CASE_CREATED."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 2, "eventType": "update"}
+        record_data = {"_ragicId": 2, "1015456": "新開案件"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CASE_CREATED
 
-    def test_new_case_created_with_full_form_path(self):
-        """Full URL-like form path containing the case management path."""
-        payload = {
-            "form_path": "/solarcs/business-process2/2",
-            "action": "create",
-            "case_id": "CASE-003",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CASE_CREATED
+    def test_new_case_created_with_full_path(self):
+        """Full path containing business-process2 with new case status."""
+        ragic_meta = {"path": "/solarcs/business-process2", "sheetIndex": 2, "eventType": "create"}
+        record_data = {"_ragicId": 3, "1015456": "新開案件"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CASE_CREATED
 
     # --- CASE_STATUS_CHANGED ---
 
     def test_case_status_changed_via_update(self):
-        """Case management form with action=update → CASE_STATUS_CHANGED."""
-        payload = {
-            "form_path": "business-process2/2",
-            "action": "update",
-            "case_id": "CASE-010",
-            "case_status": "台電審核",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.CASE_STATUS_CHANGED
+        """Case management form with non-新開案件 status → CASE_STATUS_CHANGED."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 2, "eventType": "update"}
+        record_data = {"_ragicId": 10, "1015456": "台電審核"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
-    def test_case_status_changed_no_action(self):
-        """Case management form without action field → CASE_STATUS_CHANGED."""
-        payload = {
-            "form_path": "business-process2/2",
-            "case_id": "CASE-011",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.CASE_STATUS_CHANGED
+    def test_case_status_changed_empty_status(self):
+        """Case management form with empty status → CASE_STATUS_CHANGED."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 2, "eventType": "update"}
+        record_data = {"_ragicId": 11}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
-    def test_case_status_changed_with_edit_action(self):
-        """Case management form with action=edit → CASE_STATUS_CHANGED."""
-        payload = {
-            "form_path": "business-process2/2",
-            "action": "edit",
-            "case_id": "CASE-012",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.CASE_STATUS_CHANGED
+    def test_case_status_changed_other_status(self):
+        """Case management form with other status value → CASE_STATUS_CHANGED."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 2, "eventType": "update"}
+        record_data = {"_ragicId": 12, "1015456": "發送前人工確認"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
     # --- RENEWAL_QUESTIONNAIRE ---
 
     def test_renewal_questionnaire(self):
-        """Questionnaire form with case_type=續約 → RENEWAL_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "case_type": "續約",
-            "case_id": "CASE-020",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.RENEWAL_QUESTIONNAIRE
+        """Questionnaire form with DREAMS流程=案場續約 → RENEWAL_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 7, "eventType": "create"}
+        record_data = {"_ragicId": 20, "1016556": "案場續約"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.RENEWAL_QUESTIONNAIRE
 
     def test_renewal_questionnaire_with_full_path(self):
-        """Full path containing questionnaire form path with renewal type."""
-        payload = {
-            "form_path": "/solarcs/work-survey/7",
-            "case_type": "續約",
-            "case_id": "CASE-021",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.RENEWAL_QUESTIONNAIRE
+        """Full path containing work-survey with renewal type."""
+        ragic_meta = {"path": "/solarcs/work-survey", "sheetIndex": 7, "eventType": "create"}
+        record_data = {"_ragicId": 21, "1016556": "案場續約"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.RENEWAL_QUESTIONNAIRE
 
     # --- NEW_CONTRACT_FULL_QUESTIONNAIRE ---
 
     def test_new_contract_questionnaire(self):
-        """Questionnaire form with case_type=新約 → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "case_type": "新約",
-            "case_id": "CASE-030",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
+        """Questionnaire form without renewal type → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 7, "eventType": "create"}
+        record_data = {"_ragicId": 30, "1016556": "新約"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
 
-    def test_new_contract_questionnaire_no_case_type(self):
-        """Questionnaire form without case_type defaults to NEW_CONTRACT_FULL_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "case_id": "CASE-031",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
+    def test_new_contract_questionnaire_no_flow_field(self):
+        """Questionnaire form without 1016556 field → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 7, "eventType": "create"}
+        record_data = {"_ragicId": 31}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
 
-    def test_new_contract_questionnaire_unknown_case_type(self):
-        """Questionnaire form with unrecognized case_type → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "case_type": "其他",
-            "case_id": "CASE-032",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
+    def test_new_contract_questionnaire_empty_flow_field(self):
+        """Questionnaire form with empty flow field → NEW_CONTRACT_FULL_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 7, "eventType": "create"}
+        record_data = {"_ragicId": 32, "1016556": ""}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
 
     # --- SUPPLEMENTARY_QUESTIONNAIRE ---
 
     def test_supplementary_questionnaire(self):
-        """Payload with is_supplement=True → SUPPLEMENTARY_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "is_supplement": True,
-            "case_id": "CASE-040",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
+        """Supplement form (work-survey/9) → SUPPLEMENTARY_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 9, "eventType": "create"}
+        record_data = {"_ragicId": 40}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
 
-    def test_supplementary_takes_priority_over_case_management_form(self):
-        """is_supplement flag takes priority over case management form path."""
-        payload = {
-            "form_path": "business-process2/2",
-            "is_supplement": True,
-            "action": "create",
-            "case_id": "CASE-041",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
+    def test_supplementary_questionnaire_with_full_path(self):
+        """Full path supplement form → SUPPLEMENTARY_QUESTIONNAIRE."""
+        ragic_meta = {"path": "/solarcs/work-survey", "sheetIndex": 9, "eventType": "update"}
+        record_data = {"_ragicId": 41}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
 
-    def test_supplementary_takes_priority_over_questionnaire_form(self):
-        """is_supplement flag takes priority over questionnaire form classification."""
-        payload = {
-            "form_path": "work-survey/7",
-            "is_supplement": True,
-            "case_type": "新約",
-            "case_id": "CASE-042",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
+    def test_supplementary_takes_priority_over_questionnaire(self):
+        """sheetIndex=9 takes priority even if path matches questionnaire."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 9, "eventType": "create"}
+        record_data = {"_ragicId": 42, "1016556": "案場續約"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.SUPPLEMENTARY_QUESTIONNAIRE
 
     # --- Edge cases ---
 
-    def test_empty_payload_defaults_to_status_changed(self):
-        """Empty payload defaults to CASE_STATUS_CHANGED."""
-        assert classify_webhook_event({}) == WebhookEventType.CASE_STATUS_CHANGED
+    def test_empty_meta_defaults_to_status_changed(self):
+        """Empty ragic_meta and record_data defaults to CASE_STATUS_CHANGED."""
+        assert classify_webhook_event({}, {}) == WebhookEventType.CASE_STATUS_CHANGED
 
-    def test_unknown_form_path_with_create_action(self):
-        """Unknown form path with action=create → NEW_CASE_CREATED."""
-        payload = {
-            "form_path": "unknown/form/99",
-            "action": "create",
-            "case_id": "CASE-050",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CASE_CREATED
+    def test_unknown_path_defaults_to_status_changed(self):
+        """Unknown path defaults to CASE_STATUS_CHANGED."""
+        ragic_meta = {"path": "/unknown/form", "sheetIndex": 99, "eventType": "update"}
+        record_data = {"_ragicId": 50}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
-    def test_unknown_form_path_without_create_action(self):
-        """Unknown form path without create action → CASE_STATUS_CHANGED."""
-        payload = {
-            "form_path": "unknown/form/99",
-            "action": "update",
-            "case_id": "CASE-051",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.CASE_STATUS_CHANGED
+    def test_case_management_path_wrong_sheet_index(self):
+        """business-process2 path but wrong sheetIndex → CASE_STATUS_CHANGED (default)."""
+        ragic_meta = {"path": "/business-process2", "sheetIndex": 99, "eventType": "create"}
+        record_data = {"_ragicId": 51, "1015456": "新開案件"}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
-    def test_is_supplement_false_does_not_trigger(self):
-        """is_supplement=False should NOT classify as SUPPLEMENTARY_QUESTIONNAIRE."""
-        payload = {
-            "form_path": "work-survey/7",
-            "is_supplement": False,
-            "case_type": "新約",
-            "case_id": "CASE-052",
-        }
-        assert classify_webhook_event(payload) == WebhookEventType.NEW_CONTRACT_FULL_QUESTIONNAIRE
+    def test_questionnaire_path_wrong_sheet_index(self):
+        """work-survey path but wrong sheetIndex (not 7 or 9) → CASE_STATUS_CHANGED."""
+        ragic_meta = {"path": "/work-survey", "sheetIndex": 99, "eventType": "create"}
+        record_data = {"_ragicId": 52}
+        assert classify_webhook_event(ragic_meta, record_data) == WebhookEventType.CASE_STATUS_CHANGED
 
 
 # =============================================================================
@@ -303,8 +283,12 @@ class TestValidateWebhookSource:
     def test_lambda_handler_returns_401_on_validation_failure(self):
         """Full lambda_handler returns 401 when validation fails."""
         with patch.object(app_module, "WEBHOOK_SECRET", "real-secret"):
+            payload = _make_ragic_payload(
+                path="/business-process2", sheet_index=2, event_type="create",
+                ragic_id=1, record_fields={"1015456": "新開案件"},
+            )
             event = _make_api_gateway_event(
-                body={"form_path": "business-process2/2", "action": "create"},
+                body=payload,
                 headers={"x-ragic-signature": "wrong-sig"},
             )
             response = lambda_handler(event, None)
@@ -315,8 +299,12 @@ class TestValidateWebhookSource:
     def test_lambda_handler_returns_401_no_signature_header(self):
         """lambda_handler returns 401 when secret is set but no header provided."""
         with patch.object(app_module, "WEBHOOK_SECRET", "real-secret"):
+            payload = _make_ragic_payload(
+                path="/business-process2", sheet_index=2, event_type="update",
+                ragic_id=1,
+            )
             event = _make_api_gateway_event(
-                body={"form_path": "business-process2/2"},
+                body=payload,
                 headers={},
             )
             response = lambda_handler(event, None)
@@ -336,7 +324,10 @@ class TestPayloadParsing:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
-        payload = {"form_path": "business-process2/2", "action": "create", "case_id": "P-001"}
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="create",
+            ragic_id=1, record_fields={"1015456": "新開案件"},
+        )
 
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
             event = _make_api_gateway_event(body=payload, is_base64=False)
@@ -346,7 +337,7 @@ class TestPayloadParsing:
             # Verify the payload was correctly passed to downstream Lambda
             invoke_call = mock_client.invoke.call_args
             invoke_payload = json.loads(invoke_call[1]["Payload"].decode("utf-8"))
-            assert invoke_payload["payload"]["case_id"] == "P-001"
+            assert invoke_payload["case_id"] == "1"
             assert invoke_payload["event_type"] == "NEW_CASE_CREATED"
 
     def test_base64_encoded_body(self):
@@ -354,7 +345,10 @@ class TestPayloadParsing:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
-        payload = {"form_path": "work-survey/7", "case_type": "續約", "case_id": "P-002"}
+        payload = _make_ragic_payload(
+            path="/work-survey", sheet_index=7, event_type="create",
+            ragic_id=2, record_fields={"1016556": "案場續約"},
+        )
 
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
             event = _make_api_gateway_event(body=payload, is_base64=True)
@@ -363,7 +357,6 @@ class TestPayloadParsing:
 
             invoke_call = mock_client.invoke.call_args
             invoke_payload = json.loads(invoke_call[1]["Payload"].decode("utf-8"))
-            assert invoke_payload["payload"]["case_type"] == "續約"
             assert invoke_payload["event_type"] == "RENEWAL_QUESTIONNAIRE"
 
     def test_base64_encoded_with_unicode(self):
@@ -371,13 +364,10 @@ class TestPayloadParsing:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
-        payload = {
-            "form_path": "business-process2/2",
-            "action": "update",
-            "case_id": "P-003",
-            "case_status": "台電審核",
-            "customer_name": "王小明",
-        }
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="update",
+            ragic_id=3, record_fields={"1015456": "台電審核", "customer_name": "王小明"},
+        )
 
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
             event = _make_api_gateway_event(body=payload, is_base64=True)
@@ -472,10 +462,13 @@ class TestLambdaRouting:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="create",
+            ragic_id=100, record_fields={"1015456": "新開案件"},
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={"form_path": "business-process2/2", "action": "create", "case_id": "R-001"}
-            )
+            event = _make_api_gateway_event(body=payload)
             lambda_handler(event, None)
 
             call_kwargs = mock_client.invoke.call_args[1]
@@ -486,31 +479,32 @@ class TestLambdaRouting:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
+        payload = _make_ragic_payload(
+            path="/work-survey", sheet_index=7, event_type="create",
+            ragic_id=200, record_fields={"1016556": ""},
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={
-                    "form_path": "work-survey/7",
-                    "case_type": "新約",
-                    "case_id": "R-002",
-                }
-            )
+            event = _make_api_gateway_event(body=payload)
             lambda_handler(event, None)
 
             call_kwargs = mock_client.invoke.call_args[1]
             invoke_payload = json.loads(call_kwargs["Payload"].decode("utf-8"))
             assert invoke_payload["event_type"] == "NEW_CONTRACT_FULL_QUESTIONNAIRE"
-            assert invoke_payload["case_id"] == "R-002"
-            assert invoke_payload["payload"]["case_type"] == "新約"
+            assert invoke_payload["case_id"] == "200"
 
     def test_invoke_failure_returns_200_to_prevent_retry_storm(self):
         """Lambda invoke failure still returns 200 to prevent RAGIC retry storms."""
         mock_client = MagicMock()
         mock_client.invoke.side_effect = Exception("Lambda throttled")
 
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="create",
+            ragic_id=300, record_fields={"1015456": "新開案件"},
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={"form_path": "business-process2/2", "action": "create", "case_id": "R-003"}
-            )
+            event = _make_api_gateway_event(body=payload)
             response = lambda_handler(event, None)
             assert response["statusCode"] == 200
             body = json.loads(response["body"])
@@ -520,10 +514,12 @@ class TestLambdaRouting:
         """When target function env var is empty, returns 200 with warning."""
         with patch.object(app_module, "WORKFLOW_ENGINE_FUNCTION", ""):
             mock_client = MagicMock()
+            payload = _make_ragic_payload(
+                path="/business-process2", sheet_index=2, event_type="create",
+                ragic_id=400, record_fields={"1015456": "新開案件"},
+            )
             with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-                event = _make_api_gateway_event(
-                    body={"form_path": "business-process2/2", "action": "create", "case_id": "R-004"}
-                )
+                event = _make_api_gateway_event(body=payload)
                 response = lambda_handler(event, None)
                 assert response["statusCode"] == 200
                 body = json.loads(response["body"])
@@ -544,15 +540,13 @@ class TestEndToEndScenarios:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="create",
+            ragic_id=1001, record_fields={"1015456": "新開案件", "customer_name": "測試客戶"},
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={
-                    "form_path": "business-process2/2",
-                    "action": "create",
-                    "case_id": "E2E-001",
-                    "customer_name": "測試客戶",
-                }
-            )
+            event = _make_api_gateway_event(body=payload)
             response = lambda_handler(event, None)
             assert response["statusCode"] == 200
             body = json.loads(response["body"])
@@ -564,15 +558,13 @@ class TestEndToEndScenarios:
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
+        payload = _make_ragic_payload(
+            path="/work-survey", sheet_index=9, event_type="create",
+            ragic_id=1002,
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={
-                    "form_path": "work-survey/7",
-                    "is_supplement": True,
-                    "case_id": "E2E-002",
-                },
-                is_base64=True,
-            )
+            event = _make_api_gateway_event(body=payload, is_base64=True)
             response = lambda_handler(event, None)
             assert response["statusCode"] == 200
             body = json.loads(response["body"])
@@ -581,11 +573,10 @@ class TestEndToEndScenarios:
     def test_full_flow_with_valid_hmac(self):
         """Full flow with HMAC validation enabled and correct signature."""
         secret = "production-secret-key"
-        payload_dict = {
-            "form_path": "work-survey/7",
-            "case_type": "續約",
-            "case_id": "E2E-003",
-        }
+        payload_dict = _make_ragic_payload(
+            path="/work-survey", sheet_index=7, event_type="create",
+            ragic_id=1003, record_fields={"1016556": "案場續約"},
+        )
         body_str = json.dumps(payload_dict, ensure_ascii=False)
         signature = _compute_hmac_signature(secret, body_str)
 
@@ -606,22 +597,21 @@ class TestEndToEndScenarios:
             body = json.loads(response["body"])
             assert body["event_type"] == "RENEWAL_QUESTIONNAIRE"
 
-    def test_case_id_fallback_to_ragic_id(self):
-        """When case_id is missing, ragic_id is used as fallback."""
+    def test_case_id_from_ragic_id(self):
+        """case_id is extracted from _ragicId in the data array."""
         mock_client = MagicMock()
         mock_client.invoke.return_value = {"StatusCode": 202}
 
+        payload = _make_ragic_payload(
+            path="/business-process2", sheet_index=2, event_type="create",
+            ragic_id=999, record_fields={"1015456": "新開案件"},
+        )
+
         with patch("dreams_workflow.webhook_handler.app._get_lambda_client", return_value=mock_client):
-            event = _make_api_gateway_event(
-                body={
-                    "form_path": "business-process2/2",
-                    "action": "create",
-                    "ragic_id": "RAGIC-999",
-                }
-            )
+            event = _make_api_gateway_event(body=payload)
             response = lambda_handler(event, None)
             assert response["statusCode"] == 200
 
             invoke_call = mock_client.invoke.call_args
             invoke_payload = json.loads(invoke_call[1]["Payload"].decode("utf-8"))
-            assert invoke_payload["case_id"] == "RAGIC-999"
+            assert invoke_payload["case_id"] == "999"

@@ -13,6 +13,7 @@ Requirements: 5.1, 5.2, 5.3, 5.4
 from __future__ import annotations
 
 import base64
+import json
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -159,10 +160,7 @@ class DreamsApiClient:
             logger,
             case_id=case_id,
             operation_type="dreams_api_body",
-            message=f"API body: plantNo={api_body.get('plantNo')}, "
-            f"plantType={api_body.get('plantType')}, "
-            f"parallelType={api_body.get('parallelType')}, "
-            f"retailingPolicy={api_body.get('retailingPolicy')}",
+            message=f"API body: {json.dumps(api_body, ensure_ascii=False)}",
         )
 
         # Call CreatePlantApplication

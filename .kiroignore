@@ -1,0 +1,9 @@
+# 排除 AI 不需要讀的垃圾
+node_modules/
+dist/
+.git/
+.kiro/storage/
+.kiro/logs/
+
+# 排除 refer
+refer/

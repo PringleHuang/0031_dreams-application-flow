@@ -40,7 +40,7 @@ operation_type_strategy = st.sampled_from(
         "semantic_analysis",
         "supplement_generation",
         "case_closure",
-        "renewal_processing",
+        "renewal_redirect",
     ]
 )
 

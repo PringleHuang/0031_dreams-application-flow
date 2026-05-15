@@ -104,11 +104,49 @@ def handle_taipower_review(case_id: str, payload: dict) -> dict:
             message=f"DREAMS API error: {response.error_code} - {response.error_message}, raw: {json.dumps(response.raw_response, ensure_ascii=False)[:500] if response.raw_response else 'None'}",
             level="error",
         )
+        # Send anomaly notification
+        _invoke_email_service(
+            case_id=case_id,
+            email_type=EmailType.ANOMALY_NOTIFICATION,
+            recipient_email=os.environ.get("TAIPOWER_REVIEW_CONTACT_EMAIL", "pringle.huang@gmail.com"),
+            template_data={
+                "case_id": case_id,
+                "dreams_apply_id": payload.get("1016557", payload.get("dreams_apply_id", "")),
+                "anomaly_message": f"DREAMS API 申請失敗：{response.error_message}",
+            },
+            attachments=None,
+        )
+        # Update status to 異常處理
+        from dreams_workflow.shared.models import CaseStatus
+
+        ragic_client = CloudRagicClient()
+        try:
+            from dreams_workflow.shared.state_machine import transition_case_status
+
+            transition_case_status(
+                case_id=case_id,
+                new_status=CaseStatus.ANOMALY,
+                reason=f"DREAMS API error: {response.error_message}",
+                current_status=CaseStatus.TAIPOWER_REVIEW,
+                store=ragic_client,
+            )
+        except Exception as e:
+            log_operation(
+                logger,
+                case_id=case_id,
+                operation_type="taipower_review_anomaly_status_error",
+                message=f"Failed to update status to 異常處理: {e}",
+                level="error",
+            )
+        finally:
+            ragic_client.close()
+
         return {
             "case_id": case_id,
             "action": "taipower_review_api_error",
             "error_code": response.error_code,
             "error_message": response.error_message,
+            "new_status": CaseStatus.ANOMALY.value,
         }
 
 

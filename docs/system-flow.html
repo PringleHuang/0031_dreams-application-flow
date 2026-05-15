@@ -40,9 +40,9 @@
     <div class="tab active" onclick="showTab(0)">零、每日出貨掃描 <span class="badge badge-done">✓ 實測通過</span></div>
     <div class="tab" onclick="showTab(1)">一、問卷分流 <span class="badge badge-done">✓ 實測通過</span></div>
     <div class="tab" onclick="showTab(2)">二、新約-資訊收集 <span class="badge badge-done">✓ 實測通過</span></div>
-    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-partial">API整合完成・待回傳確認</span></div>
+    <div class="tab" onclick="showTab(3)">三、新約-台電審核 <span class="badge badge-partial">API回傳正常・待電號新增/異常處理測試</span></div>
     <div class="tab" onclick="showTab(4)">四、新約-安裝結案 <span class="badge badge-partial">程式完成・待整合</span></div>
-    <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-done">✓ 實測通過</span></div>
+    <div class="tab" onclick="showTab(5)">五、續約簡化流程 <span class="badge badge-done">✓ 實測通過（待移除續約處理站點）</span></div>
     <div class="tab" onclick="showTab(6)">六、狀態轉換總覽</div>
     <div class="tab" onclick="showTab(7)">七、元件互動時序</div>
 </div>
@@ -79,8 +79,8 @@ flowchart TD
     B3 --> V{"查案件管理表\n狀態=待填問卷?"}:::done
     V -->|否| VE["發異常通知信給負責人\n【DREAMS異常通知】\n（狀態不正確，不處理）"]:::done
     V -->|是| C{"欄位1016556\nDREAMS流程"}:::done
-    C -->|案場續約| F2["workflow_engine\n案件狀態 → 續約處理"]:::done
-    F2 --> H(["進入續約簡化流程 Tab五"])
+    C -->|案場續約| F2["webhook_handler 回傳續約網站連結\n（不經過續約處理站點）"]:::done
+    F2 --> H(["客戶直接在續約網站完成 Tab五"])
     C -->|新設案場| K2["ai_determination\n從 DREAMS_APPLY_ID 解析 ragicId\n→ AI 判定流程"]:::done
     K2 --> L(["進入 AI 判定流程 Tab二"])
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
@@ -118,25 +118,26 @@ flowchart TD
 <!-- Tab 3 -->
 <div class="diagram-card" id="tab-3">
 <h2>新約流程 - 台電審核階段</h2>
-<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>✓ 2026-05-12 台電申請實測通過</b>：Webhook 觸發 → 呼叫 GCP CreatePlantApplication API → 成功取得案號 → 下載 PDF（450KB）→ 案號寫入 RAGIC → 發送審核申請信。<br><b>✓ 2026-05-13 API 回傳格式已修正</b>：IsSuccess=false 明確回傳錯誤原因（電號已存在/欄位驗證失敗）。</div>
+<div class="desc">人工確認OK後, 呼叫 DREAMS 填單 API 取得案號與 PDF, 連同佐證文件發送給台電。台電回覆後 AI 語意分析寫入結果, 進入「發送前人工確認」由人工決定下一步。<br><b>✓ 2026-05-12 台電申請實測通過</b>：Webhook 觸發 → 呼叫 GCP CreatePlantApplication API → 成功取得案號 → 下載 PDF（450KB）→ 案號寫入 RAGIC → 發送審核申請信。<br><b>✓ 2026-05-13 API 回傳格式已修正</b>：IsSuccess=false 明確回傳錯誤原因（電號已存在/欄位驗證失敗）。<br><b>✓ 2026-05-15 API 回傳驗證</b>：完整 request body 送出（18欄位全有值）、API 正常回傳 IsSuccess=false + 明確錯誤訊息（日期驗證）。<br><b>✓ 2026-05-15 台電回信接收</b>：SES 收信 → mail_receiver 解析 → LLM 分類（rejected）→ 逐欄位 Pass/Fail → RAGIC 寫入 → 狀態「發送前人工確認」。<br><b>⚠ 待測</b>：電號不存在分支、API_ERROR 異常通知（需新增功能）。</div>
 <div class="mermaid">
 flowchart TD
     A["RAGIC Webhook - 狀態變更為台電審核"]:::done --> B["呼叫 DREAMS CreatePlantApplication API\n（GCP http://35.236.137.19/DREAMS_Service_TP）\n電號自動處理, 欄位值轉換"]:::done
     B --> C{"API 回應"}:::done
     C -->|IsSuccess=true\nid>0, status=wait-approval| F["案號寫入 RAGIC\n下載 GetPlantApplicationPdf"]:::done
-    C -->|IsSuccess=false\n電號不存在| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號新增】_{ID}/案場/電號"]:::done
+    C -->|IsSuccess=false\n電號不存在| D["SES 發送電號建立請求通知\n主旨:【DREAMS電號新增】_{ID}/案場/電號"]:::todo
+    C -->|IsSuccess=false\n其他錯誤| CERR["發送異常通知信\n狀態→異常處理"]:::todo
     D --> E["台電以郵件通知電號建立完成"]:::todo
     E --> E2["SES 接收通知 → mail_receiver"]:::todo
     E2 --> E3{"確認案件狀態\n=台電審核?"}:::todo
     E3 -->|否| E3E["發異常通知信"]:::todo
     E3 -->|是| B
     F --> G["SES 發送審核申請信給台電\n主旨:【DREAMS審核】_{ID}/案場/電號\n含佐證文件 + 申請資料 PDF"]:::done
-    G --> H["台電回覆審核結果郵件"]:::todo
+    G --> H["台電回覆審核結果郵件"]:::done
     H --> I["SES 接收（dreams-automation@enetek.net）\n→ S3 incoming/ → mail_receiver Lambda"]:::done
-    I --> I2{"確認案件狀態\n=台電審核?"}:::todo
+    I --> I2{"確認案件狀態\n=台電審核?"}:::done
     I2 -->|否| I2E["發異常通知信"]:::todo
-    I2 -->|是| J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::todo
-    J --> K["語意分析結果寫入 RAGIC\n狀態 → 發送前人工確認"]:::todo
+    I2 -->|是| J["Bedrock AI 語意分析\n判定各欄位 Pass/Fail"]:::done
+    J --> K["語意分析結果寫入 RAGIC\n狀態 → 發送前人工確認"]:::done
     K --> L["公司聯絡人在 RAGIC 檢視台電審核結果"]:::todo
     L --> M{"人工在 RAGIC 手動改狀態"}:::todo
     M -->|改為 安裝階段| N(["進入安裝階段 Tab四"])
@@ -172,18 +173,17 @@ flowchart TD
 <!-- Tab 5 -->
 <div class="diagram-card" id="tab-5">
 <h2>續約簡化流程</h2>
-<div class="desc">續約案件不需 AI 判定和台電審核。本專案負責到「狀態更新為續約處理」為止。後續 SunVeillance 登入、選案場、回寫結案由另一系統團隊開發。<br><b>✓ 2026-05-12 實測通過</b>：問卷選「案場續約」→ 狀態驗證 → 狀態更新為「續約處理」。</div>
+<div class="desc">續約案件不需 AI 判定和台電審核。問卷選「案場續約」後直接提供 SunVeillance 續約網站連結，由客戶在該網站完成續約流程，不經過「續約處理」狀態站點。<br><b>✓ 2026-05-15 實測通過</b>：問卷選「案場續約」→ 狀態驗證 → 直接提供續約網站連結 → 由網站完成結案。</div>
 <div class="mermaid">
 flowchart TD
     A["問卷選擇「案場續約」"]:::done --> B["狀態驗證：確認=待填問卷"]:::done
-    B --> C["案件狀態 → 續約處理"]:::done
-    C --> D["提供 SunVeillance 登入資訊給客戶"]:::other
-    D --> E["客戶登入 SunVeillance"]:::other
-    E --> F["客戶選擇續約案場"]:::other
-    F --> G{"選擇完成"}:::other
-    G -->|否| F
-    G -->|是| H["回寫雲端 RAGIC 案件管理表單"]:::other
-    H --> I["案件狀態 → 已結案"]:::other
+    B --> C["提供 SunVeillance 續約網站連結給客戶\n（問卷連結直接導向續約網站）"]:::done
+    C --> D["客戶登入 SunVeillance"]:::other
+    D --> E["客戶選擇續約案場"]:::other
+    E --> F{"選擇完成"}:::other
+    F -->|否| E
+    F -->|是| G["回寫雲端 RAGIC 案件管理表單"]:::other
+    G --> H["案件狀態 → 已結案"]:::other
     classDef done fill:#c8e6c9,stroke:#2e7d32,color:#1b5e20
     classDef other fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
 </div>
@@ -195,7 +195,7 @@ flowchart TD
 <tr><td style="padding:8px; border:1px solid #ddd;">AI判定</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
 <tr><td style="padding:8px; border:1px solid #ddd;">台電審核</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
 <tr><td style="padding:8px; border:1px solid #ddd;">安裝</td><td style="padding:8px; border:1px solid #ddd;">不需要</td><td style="padding:8px; border:1px solid #ddd;">需要</td></tr>
-<tr><td style="padding:8px; border:1px solid #ddd;">結案方式</td><td style="padding:8px; border:1px solid #ddd;">SunVeillance選案場+回寫RAGIC</td><td style="padding:8px; border:1px solid #ddd;">DREAMS上線+SunVeillance同步</td></tr>
+<tr><td style="padding:8px; border:1px solid #ddd;">結案方式</td><td style="padding:8px; border:1px solid #ddd;">SunVeillance選案場+回寫RAGIC（直接結案）</td><td style="padding:8px; border:1px solid #ddd;">DREAMS上線+SunVeillance同步</td></tr>
 </table>
 </div>
 </div>
@@ -203,50 +203,65 @@ flowchart TD
 <!-- Tab 6 -->
 <div class="diagram-card" id="tab-6">
 <h2>案件狀態轉換總覽</h2>
-<div class="desc">案件共 11 個狀態, 2 種類型。續約走簡化路徑, 新約走完整路徑。台電回覆後需經「發送前人工確認」再決定下一步。</div>
+<div class="desc">案件共 10 個狀態, 2 種類型。續約直接由網站完成結案（不經過「續約處理」站點）, 新約走完整路徑。台電回覆後需經「發送前人工確認」再決定下一步。<br><b>粗實線</b> = 2026-05-15 已實測通過，<b>虛線</b> = 尚未實測。</div>
 <div class="mermaid">
-stateDiagram-v2
-    [*] --> NewCase : 出貨掃描建立案件
-    NewCase --> PendingQ : 發送問卷通知
-    PendingQ --> Renewal : 續約填寫電號
-    PendingQ --> ManualConfirm : 新約AI判定完成
-    Renewal --> Closed : 續約完成回寫
-    ManualConfirm --> TaipowerReview : 人工確認合格
-    ManualConfirm --> InfoSupp : 人工確認不合格
-    InfoSupp --> ManualConfirm : 補件後AI判定完成
-    TaipowerReview --> PreSendConfirm : 台電回覆後
-    PreSendConfirm --> TaipowerSupp : 人工確認需補件
-    PreSendConfirm --> Installation : 人工確認核准
-    TaipowerSupp --> ManualConfirm : 補件AI判讀完成→待人工確認
-    Installation --> Online : 自主檢查通過
-    Online --> Closed : 資料同步完成
+flowchart TD
+    START(["●"]) ==>|出貨掃描建立案件| NewCase["新開案件"]
+    NewCase ==>|發送問卷通知| PendingQ["待填問卷"]
+    PendingQ ==>|新約AI判定完成| ManualConfirm["待人工確認"]
+    PendingQ ==>|續約（由網站直接結案）| Closed["已結案"]
+    ManualConfirm -.->|人工確認合格| TaipowerReview["台電審核"]
+    ManualConfirm ==>|人工確認不合格| InfoSupp["資訊補件"]
+    InfoSupp ==>|補件後AI判定完成| ManualConfirm
+    TaipowerReview -.->|台電回覆後| PreSendConfirm["發送前人工確認"]
+    PreSendConfirm -.->|人工確認需補件| TaipowerSupp["台電補件"]
+    PreSendConfirm -.->|人工確認核准| Installation["安裝階段"]
+    TaipowerSupp -.->|補件AI判讀完成| ManualConfirm
+    Installation -.->|自主檢查通過| Online["完成上線"]
+    Online -.->|資料同步完成| Closed
 
-    state "新開案件" as NewCase
-    state "待填問卷" as PendingQ
-    state "續約處理" as Renewal
-    state "待人工確認" as ManualConfirm
-    state "資訊補件" as InfoSupp
-    state "台電審核" as TaipowerReview
-    state "發送前人工確認" as PreSendConfirm
-    state "台電補件" as TaipowerSupp
-    state "安裝階段" as Installation
-    state "完成上線" as Online
-    state "已結案" as Closed
+    style NewCase fill:#c8e6c9,stroke:#2e7d32
+    style PendingQ fill:#c8e6c9,stroke:#2e7d32
+    style ManualConfirm fill:#c8e6c9,stroke:#2e7d32
+    style InfoSupp fill:#c8e6c9,stroke:#2e7d32
+    style TaipowerReview fill:#fff3e0,stroke:#f57c00
+    style PreSendConfirm fill:#fff3e0,stroke:#f57c00
+    style Closed fill:#c8e6c9,stroke:#2e7d32
+    style TaipowerSupp fill:#fff3e0,stroke:#f57c00
+    style Installation fill:#fff3e0,stroke:#f57c00
+    style Online fill:#fff3e0,stroke:#f57c00
 </div>
 <div class="legend">
-<h3>狀態說明</h3>
-<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:6px; margin-top:8px; font-size:13px;">
-<div><b>新開案件</b> - 出貨掃描服務建立, 等待發送問卷</div>
-<div><b>待填問卷</b> - 問卷通知已發送, 等待客戶填寫</div>
-<div><b style="color:#2e7d32;">續約處理</b> - 等待客戶選擇續約案場</div>
-<div><b>待人工確認</b> - AI判定完成, 等待人工在RAGIC改狀態</div>
-<div><b>資訊補件</b> - 等待客戶補件</div>
-<div><b>台電審核</b> - 已送出審核申請, 等待台電回覆</div>
-<div><b>發送前人工確認</b> - 台電回覆已分析, 等待人工確認</div>
-<div><b>台電補件</b> - 台電駁回, 等待客戶補件</div>
-<div><b>安裝階段</b> - 等待客戶安裝設備</div>
-<div><b>完成上線</b> - DREAMS已上線, 同步中</div>
-<div><b>已結案</b> - 案件關閉</div>
+<h3>測試進度（2026-05-15）</h3>
+<div style="margin-top:8px; font-size:13px; line-height:2;">
+<b>✅ 已實測通過的轉換路徑：</b><br>
+&nbsp;&nbsp;• [*] → 新開案件 → 待填問卷（問卷通知信發送）<br>
+&nbsp;&nbsp;• 待填問卷 → 待人工確認（新約 AI 判定完成）<br>
+&nbsp;&nbsp;• 待填問卷 → 已結案（續約由網站直接結案）<br>
+&nbsp;&nbsp;• 待人工確認 → 資訊補件（人工確認不合格）<br>
+&nbsp;&nbsp;• 資訊補件 → 待人工確認（補件後 AI 重新判定完成）<br>
+<br>
+<b>⚠ 尚未實測的轉換路徑：</b><br>
+&nbsp;&nbsp;• 待人工確認 → 台電審核（DREAMS API 尚未成功回傳案號）<br>
+&nbsp;&nbsp;• 台電審核 → 發送前人工確認（完整路徑尚未走通）<br>
+&nbsp;&nbsp;• 發送前人工確認 → 台電補件（人工確認需補件）<br>
+&nbsp;&nbsp;• 台電補件 → 待人工確認（補件 AI 判讀完成）<br>
+&nbsp;&nbsp;• 發送前人工確認 → 安裝階段（人工確認核准）<br>
+&nbsp;&nbsp;• 安裝階段 → 完成上線（自主檢查通過）<br>
+&nbsp;&nbsp;• 完成上線 → 已結案（資料同步完成）<br>
+<br>
+<b>⚡ 已驗證但非完整路徑（獨立測試）：</b><br>
+&nbsp;&nbsp;• mail_receiver 收信 → AI 語意分析 → RAGIC 寫入（record 26，獨立測試）<br>
+&nbsp;&nbsp;• DREAMS API request body 完整送出（18欄位全有值）<br>
+&nbsp;&nbsp;• DREAMS API 回傳 IsSuccess=false 正常處理（日期驗證錯誤）<br>
+</div>
+</div>
+<div class="legend" style="margin-top:12px; border-left-color:#f57c00;">
+<h3>待開發功能</h3>
+<div style="margin-top:8px; font-size:13px;">
+&nbsp;&nbsp;• DREAMS API 回傳 API_ERROR 時：發送異常通知信 + 狀態→異常處理<br>
+&nbsp;&nbsp;• 5 個 no-op handler：待人工確認、完成上線、已結案、異常處理（+移除續約處理）<br>
+&nbsp;&nbsp;• 問卷通知信 template：字體加大 + 紅色粗體標記<br>
 </div>
 </div>
 </div>
@@ -295,11 +310,10 @@ sequenceDiagram
         R->>AG: Webhook Renewal
         AG->>WH: Forward
         WH->>WF: Type = Renewal
-        WF->>R: Status → 續約處理
-        WF->>ES: Send SunVeillance login
-        SES->>C: Login info
-        C->>SV: Select renewal site
-        WF->>R: Write back + Status → 已結案
+        WF->>ES: Send SunVeillance renewal link
+        SES->>C: Renewal website link
+        C->>SV: Complete renewal on website
+        SV->>R: Write back + Status → 已結案
     else New Contract
         R->>AG: Webhook New Contract
         AG->>WH: Forward
@@ -383,11 +397,11 @@ sequenceDiagram
     <span style="display:inline-block; width:16px; height:16px; background:#c8e6c9; border:2px solid #2e7d32; border-radius:3px; vertical-align:middle; margin:0 4px;"></span> 已完成＋實測通過
     <span style="display:inline-block; width:16px; height:16px; background:#fff3e0; border:2px solid #f57c00; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 程式完成・待實測/整合（需外部系統配合）
     <span style="display:inline-block; width:16px; height:16px; background:#fff; border:2px solid #9e9e9e; border-radius:3px; vertical-align:middle; margin:0 4px 0 16px;"></span> 未標色（不涉及程式開發）
-    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-13
+    &nbsp;&nbsp;|&nbsp;&nbsp; 最後更新：2026-05-15
     <br><br>
-    <b>已實測通過：</b> 每日出貨掃描 → Webhook 分類 → 問卷通知信 → 問卷分流（新設案場/案場續約）→ 狀態驗證 + 異常通知 → AI 判定（Bedrock）→ RAGIC 寫入 → 資訊補件通知（含比對表格 + 佐証文件勾選）→ 補件問卷回覆 → AI 重新判定 → 台電申請（CreatePlantApplication + PDF下載 + 審核信）→ SES 接收郵件（dreams-automation@enetek.net → S3 → Lambda 觸發）
+    <b>已實測通過：</b> 每日出貨掃描 → Webhook 分類 → 問卷通知信 → 問卷分流（新設案場/案場續約）→ 狀態驗證 + 異常通知 → AI 判定（Bedrock）→ RAGIC 寫入 → 資訊補件通知（含比對表格 + 佐証文件勾選）→ 補件問卷回覆 → AI 重新判定 → 台電申請（CreatePlantApplication + PDF下載 + 審核信）→ SES 收信（dreams-automation@enetek.net → S3 → Lambda）→ mail_receiver 語意分析（rejected → 逐欄位 Pass/Fail → RAGIC 寫入 → 狀態「發送前人工確認」）→ DREAMS API 完整 request body 驗證（18欄位）→ API 回傳 IsSuccess=false 正常處理
     <br>
-    <b>待整合：</b> mail_receiver 事件解析修正 → 台電回信 AI 語意分析 → SunVeillance API
+    <b>待測：</b> 電號不存在分支（需 DREAMS 配合）→ API_ERROR 異常通知（需新增功能）→ 台電補件流程 → 安裝階段通知 → 帳號開通通知 → SunVeillance API
 </div>
 <script>
 mermaid.initialize({ startOnLoad: true, theme: 'default' });
